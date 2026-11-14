@@ -24,6 +24,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import 'slack_event.dart';
+
 /// What the caller should do.
 enum SlackGateOutcome {
   /// Fan this doorbell out to listeners; answer 200.
@@ -48,32 +50,8 @@ class SlackGateDecision {
   /// to whoever is guessing at the signature.
   final String reason;
 
-  /// The doorbell payload to broadcast to listeners, present iff
-  /// [outcome] == [SlackGateOutcome.trigger]. Shape:
-  /// ```
-  /// {
-  ///   "event": "slack_mention" | "slack_message" | "slack_command",
-  ///   "team": "T...",
-  ///   "channel": "C...",
-  ///   "thread_ts": "...",       // event.thread_ts || event.ts (the anchor)
-  ///   "user": "U...",
-  ///   // slack_mention / slack_message only — the parser (gate_parser.dart)
-  ///   // consumes these to build a SlackNode without re-fetching from Slack:
-  ///   "text": "hi there",       // event.text
-  ///   "event_ts": "1700…",      // event.ts (the message's own ts; may equal
-  ///                             //           thread_ts for a top-level mention)
-  ///   "subtype": "message_changed" | "message_deleted" | null,
-  ///   "raw_thread_ts": "1700…" | null,  // event.thread_ts as-sent
-  ///   "raw_event": {...},       // the full inner event map — SlackEventRaw
-  ///                             // fallback for unrecognised subtypes
-  ///   // slack_command only:
-  ///   "command": "/model",
-  ///   "text": "opus-4.7",
-  ///   "trigger_id": "...",
-  ///   "response_url": "...",
-  /// }
-  /// ```
-  final Map<String, dynamic>? message;
+  /// What arrived, present iff [outcome] == [SlackGateOutcome.trigger].
+  final SlackEvent? event;
 
   /// Challenge to echo in the response body, present iff
   /// [outcome] == [SlackGateOutcome.urlVerification].
@@ -88,7 +66,7 @@ class SlackGateDecision {
   const SlackGateDecision(
     this.outcome,
     this.reason, {
-    this.message,
+    this.event,
     this.challenge,
     this.digest,
   });
@@ -404,18 +382,18 @@ SlackGateDecision _event(
   return SlackGateDecision(
     SlackGateOutcome.trigger,
     'event "$type"',
-    message: {
-      'event': type == 'app_mention' ? 'slack_mention' : 'slack_message',
-      'team': teamId,
-      'channel': channel,
-      'thread_ts': anchor,
-      'user': user is String ? user : null,
-      'text': text is String ? text : null,
-      'event_ts': ts is String ? ts : null,
-      'subtype': subtype is String ? subtype : null,
-      'raw_thread_ts': threadTs is String && threadTs.isNotEmpty ? threadTs : null,
-      'raw_event': event.cast<String, dynamic>(),
-    },
+    event: SlackMessage(
+      workspace: teamId,
+      channel: channel,
+      threadTs: anchor,
+      mention: type == 'app_mention',
+      user: user is String ? user : null,
+      text: text is String ? text : null,
+      eventTs: ts is String ? ts : null,
+      subtype: subtype is String ? subtype : null,
+      rawThreadTs: threadTs is String && threadTs.isNotEmpty ? threadTs : null,
+      rawEvent: event.cast<String, dynamic>(),
+    ),
     digest: digest,
   );
 }
@@ -463,24 +441,29 @@ SlackGateDecision _reactionEvent(
       digest: digest,
     );
   }
+  final rawEvent = event.cast<String, dynamic>();
   return SlackGateDecision(
     SlackGateOutcome.trigger,
     'event "$type"',
-    message: {
-      'event': type == 'reaction_added'
-          ? 'slack_reaction_added'
-          : 'slack_reaction_removed',
-      'team': teamId,
-      'channel': channel,
-      // No thread_ts in a reaction event — the parser resolves the journey
-      // via mirror.locate(channel, target_ts).
-      'thread_ts': null,
-      'user': user,
-      'reaction': reaction,
-      'target_ts': targetTs,
-      'event_ts': eventTs,
-      'raw_event': event.cast<String, dynamic>(),
-    },
+    event: type == 'reaction_added'
+        ? SlackReactionAdded(
+            workspace: teamId,
+            channel: channel,
+            user: user,
+            reaction: reaction,
+            targetTs: targetTs,
+            eventTs: eventTs,
+            rawEvent: rawEvent,
+          )
+        : SlackReactionRemoved(
+            workspace: teamId,
+            channel: channel,
+            user: user,
+            reaction: reaction,
+            targetTs: targetTs,
+            eventTs: eventTs,
+            rawEvent: rawEvent,
+          ),
     digest: digest,
   );
 }
@@ -515,19 +498,19 @@ SlackGateDecision _command(
   return SlackGateDecision(
     SlackGateOutcome.trigger,
     'command "$command"',
-    message: {
-      'event': 'slack_command',
-      'team': teamId,
-      'channel': channel,
-      'thread_ts': threadTs is String && threadTs.isNotEmpty ? threadTs : null,
-      'user': user,
-      'command': command,
-      'text': payload['text'] is String ? payload['text'] : '',
-      'trigger_id':
-          payload['trigger_id'] is String ? payload['trigger_id'] : null,
-      'response_url':
-          payload['response_url'] is String ? payload['response_url'] : null,
-    },
+    event: SlackCommand(
+      workspace: teamId,
+      channel: channel,
+      threadTs: threadTs is String && threadTs.isNotEmpty ? threadTs : null,
+      user: user,
+      command: command,
+      text: payload['text'] is String ? payload['text'] as String : '',
+      triggerId:
+          payload['trigger_id'] is String ? payload['trigger_id'] as String : null,
+      responseUrl: payload['response_url'] is String
+          ? payload['response_url'] as String
+          : null,
+    ),
     digest: digest,
   );
 }

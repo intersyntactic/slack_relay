@@ -72,10 +72,10 @@ void main() {
       expect(await res.transform(utf8.decoder).join(), 'xyz');
     });
 
-    test('a correctly signed app_mention is 200 and calls onDoorbell',
+    test('a correctly signed app_mention is 200 and calls onEvent',
         () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
-      final doorbells = <Map<String, dynamic>>[];
+      final events = <SlackEvent>[];
       final dispatched = Completer<void>();
       final relay = SlackRelay(
         spec: SlackSourceSpec(
@@ -83,8 +83,8 @@ void main() {
           teamIdAllowlist: const {team},
         ),
         now: () => at,
-        onDoorbell: (bell) async {
-          doorbells.add(bell);
+        onEvent: (event) async {
+          events.add(event);
           if (!dispatched.isCompleted) dispatched.complete();
         },
       );
@@ -113,19 +113,20 @@ void main() {
       );
       expect(res.statusCode, 200);
       await dispatched.future.timeout(const Duration(seconds: 2));
-      expect(doorbells, hasLength(1));
-      expect(doorbells.single['event'], 'slack_mention');
-      expect(doorbells.single['channel'], 'C1');
+      expect(events, hasLength(1));
+      final event = events.single as SlackMessage;
+      expect(event.mention, isTrue);
+      expect(event.channel, 'C1');
     });
 
-    test('a wrong signature answers 401 and does not call onDoorbell',
+    test('a wrong signature answers 401 and does not call onEvent',
         () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
-      final doorbells = <Map<String, dynamic>>[];
+      final events = <SlackEvent>[];
       final relay = SlackRelay(
         spec: const SlackSourceSpec(signingSecret: secret),
         now: () => at,
-        onDoorbell: (bell) async => doorbells.add(bell),
+        onEvent: (event) async => events.add(event),
       );
       final base = await _serve(relay);
       final body = utf8.encode(jsonEncode({'type': 'event_callback'}));
@@ -143,21 +144,21 @@ void main() {
       // Give the (should-not-fire) handler a tick to run if the ACK path is
       // broken; if it hasn't fired by now, the gate held.
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(doorbells, isEmpty);
+      expect(events, isEmpty);
     });
 
     test(
         'a replay of a correctly signed event is accepted but not re-dispatched',
         () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
-      final doorbells = <Map<String, dynamic>>[];
+      final events = <SlackEvent>[];
       final relay = SlackRelay(
         spec: SlackSourceSpec(
           signingSecret: secret,
           teamIdAllowlist: const {team},
         ),
         now: () => at,
-        onDoorbell: (bell) async => doorbells.add(bell),
+        onEvent: (event) async => events.add(event),
       );
       final base = await _serve(relay);
       final body = utf8.encode(jsonEncode({
@@ -184,7 +185,7 @@ void main() {
           contentType: 'application/json', body: body, headers: headers);
       expect(second.statusCode, 200);
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(doorbells, hasLength(1),
+      expect(events, hasLength(1),
           reason: 'replay should ACK 200 but not re-run the pipeline');
     });
 

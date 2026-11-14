@@ -77,10 +77,11 @@ void main() {
     test('a correctly signed app_mention triggers', () {
       final d = run();
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['event'], 'slack_mention');
-      expect(d.message?['channel'], 'C999');
-      expect(d.message?['thread_ts'], '1700000000.000100');
-      expect(d.message?['team'], team);
+      final e = d.event as SlackMessage?;
+      expect(e?.mention, isTrue);
+      expect(e?.channel, 'C999');
+      expect(e?.threadTs, '1700000000.000100');
+      expect(e?.workspace, team);
     });
 
     test('a body signed with the wrong secret is rejected', () {
@@ -217,10 +218,10 @@ void main() {
       final body = jsonBody(appMention(threadTs: '1699999999.000050'));
       final d = run(body: body, headers: signedHeaders(body));
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['thread_ts'], '1699999999.000050');
+      expect((d.event as SlackMessage?)?.threadTs, '1699999999.000050');
     });
 
-    test('a message (non-mention) wakes as slack_message', () {
+    test('a message (non-mention) wakes as a non-mention SlackMessage', () {
       final body = jsonBody({
         'type': 'event_callback',
         'team_id': team,
@@ -233,7 +234,7 @@ void main() {
       });
       final d = run(body: body, headers: signedHeaders(body));
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['event'], 'slack_message');
+      expect((d.event as SlackMessage?)?.mention, isFalse);
     });
 
     test('reaction_added on a message triggers slack_reaction_added', () {
@@ -254,15 +255,12 @@ void main() {
       });
       final d = run(body: body, headers: signedHeaders(body));
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['event'], 'slack_reaction_added');
-      expect(d.message?['channel'], 'C999');
-      expect(d.message?['target_ts'], '1700000000.000100');
-      expect(d.message?['event_ts'], '1700000500.000700');
-      expect(d.message?['reaction'], 'thumbsup');
-      expect(d.message?['user'], 'U42');
-      // No thread_ts in a reaction event — the parser resolves the journey
-      // from the mirror.
-      expect(d.message?['thread_ts'], isNull);
+      final e = d.event as SlackReactionAdded?;
+      expect(e?.channel, 'C999');
+      expect(e?.targetTs, '1700000000.000100');
+      expect(e?.eventTs, '1700000500.000700');
+      expect(e?.reaction, 'thumbsup');
+      expect(e?.user, 'U42');
     });
 
     test('reaction_removed on a message triggers slack_reaction_removed', () {
@@ -283,8 +281,7 @@ void main() {
       });
       final d = run(body: body, headers: signedHeaders(body));
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['event'], 'slack_reaction_removed');
-      expect(d.message?['target_ts'], '1700000000.000100');
+      expect((d.event as SlackReactionRemoved?)?.targetTs, '1700000000.000100');
     });
 
     test('reaction on a non-message item is ignored, not rejected', () {
@@ -331,10 +328,10 @@ void main() {
         contentType: 'application/x-www-form-urlencoded',
       );
       expect(d.outcome, SlackGateOutcome.trigger);
-      expect(d.message?['event'], 'slack_command');
-      expect(d.message?['command'], '/model');
-      expect(d.message?['text'], 'claude-opus-4-7');
-      expect(d.message?['trigger_id'], 'tr1');
+      final e = d.event as SlackCommand?;
+      expect(e?.command, '/model');
+      expect(e?.text, 'claude-opus-4-7');
+      expect(e?.triggerId, 'tr1');
     });
 
     test('an unknown slash command is ignored, not rejected', () {

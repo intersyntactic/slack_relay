@@ -1,28 +1,25 @@
 /// The HTTP front of a Slack app: the one endpoint Slack posts to.
 ///
-/// A relay in the sense of `intersyntactic_relay`, the one GitHub posts to:
-/// it checks a delivery and passes a doorbell on. This one hands its
-/// doorbells to [SlackRelay.onDoorbell] — no knowledge of mirrors, node
-/// shapes, or kickoff records; that domain logic lives downstream (in
-/// is_slack_module, for intersyntactic).
-///
 /// It reads the body under a cap and a deadline, asks [slackGate], answers
-/// at once, and only then hands a doorbell on, so nothing the receiver does
-/// can make Slack wait past its 3 seconds and retry. It owns the
-/// replay-dedupe cache the gate's `hasSeen` closure needs, since the gate
-/// itself is pure and keeps no state.
+/// at once, and only then hands the [SlackEvent] to [SlackRelay.onEvent],
+/// so nothing the receiver does can make Slack wait past its 3 seconds and
+/// retry. It owns the replay-dedupe cache the gate's `hasSeen` closure
+/// needs, since the gate itself is pure and keeps no state — and nothing
+/// of mirrors, node shapes, or kickoff records, which is domain logic that
+/// lives downstream (in is_slack_module, for intersyntactic).
 library;
 
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
+import 'slack_event.dart';
 import 'slack_gate.dart';
 
 final class SlackRelay {
   SlackRelay({
     required this.spec,
-    this.onDoorbell = _logDoorbell,
+    this.onEvent = _logEvent,
     DateTime Function()? now,
     this.bodyTimeout = const Duration(seconds: 10),
     this.maxBodyBytes = 1024 * 1024,
@@ -37,9 +34,9 @@ final class SlackRelay {
 
   final SlackSourceSpec spec;
 
-  /// What becomes of a doorbell once Slack has its ACK. Defaults to a log
+  /// What becomes of an arrival once Slack has its ACK. Defaults to a log
   /// line, so the relay runs end to end before a receiver is wired in.
-  final Future<void> Function(Map<String, dynamic> doorbell) onDoorbell;
+  final Future<void> Function(SlackEvent event) onEvent;
 
   final Duration bodyTimeout;
   final int maxBodyBytes;
@@ -134,7 +131,7 @@ final class SlackRelay {
         // than that, and the replay cache guards against the retries that
         // fire if we are mid-run.
         await _end(req, HttpStatus.ok);
-        unawaited(_dispatch(d.message!));
+        unawaited(_dispatch(d.event!));
       case SlackGateOutcome.ignore:
         await _end(req, HttpStatus.ok);
       case SlackGateOutcome.reject:
@@ -144,11 +141,11 @@ final class SlackRelay {
     }
   }
 
-  Future<void> _dispatch(Map<String, dynamic> doorbell) async {
+  Future<void> _dispatch(SlackEvent event) async {
     try {
-      await onDoorbell(doorbell);
+      await onEvent(event);
     } on Exception catch (e) {
-      log('slack relay: doorbell handler: $e');
+      log('slack relay: event handler: $e');
     }
   }
 
@@ -183,7 +180,7 @@ final class SlackRelay {
   static void _stderr(String line) => stderr.writeln(line);
 
   /// The event kind only, never the content.
-  static Future<void> _logDoorbell(Map<String, dynamic> bell) async {
-    stderr.writeln('slack relay: doorbell ${bell['event']}');
+  static Future<void> _logEvent(SlackEvent event) async {
+    stderr.writeln('slack relay: event ${event.runtimeType}');
   }
 }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+- **Breaking:** what the gate hands on is a typed `SlackEvent`, not a
+  "doorbell" map. "Doorbell" came from relays whose notice carries nothing
+  and sends the reader off to fetch; Slack's carries the person's words
+  inline, same as a slash command's argument, so the name said the opposite
+  of the one thing that matters about it (mirrors `is_teams_module`'s same
+  rename, in flight on its own `refactor/arrival` branch as this landed).
+  `SlackGateDecision.message` is now `.event`; `SlackRelay.onDoorbell` is
+  now `.onEvent`.
+- `SlackEvent` (sealed): `SlackMessage` (app_mention and plain message, any
+  subtype), `SlackReactionAdded`, `SlackReactionRemoved`, `SlackCommand`.
+  Typed fields instead of a `Map<String, dynamic>`; same information as
+  before, read once in the gate instead of downstream. Deliberately has no
+  `actor` — that stays a domain concern in the consuming module.
+
 ## 0.1.0
 
 - Extracted from `is_slack_module`'s `slack_gate.dart` and the generic half
