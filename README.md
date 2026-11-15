@@ -68,6 +68,25 @@ concern from domain logic (turning a doorbell into node shapes, mirrors,
 kickoff records), and the two don't need to version together. A module
 with Slack domain logic depends on this package, not the other way around.
 
+## Slack app configuration gotchas
+
+Three failures hit while wiring up the first consumer, none obvious from
+Slack's own error messages:
+
+- **"This app can only be installed by an admin"** on an otherwise-ordinary
+  workspace install. Caused by a stray `admin.invites:read` user scope in
+  the manifest — that scope alone marks the whole app Enterprise-only.
+  Remove it unless the app genuinely needs it.
+- **The manifest editor silently drops `settings.event_subscriptions`** on
+  an unrelated edit made through the UI (e.g. adding a bot scope). Slack
+  doesn't warn; the subscribed events just stop arriving. Re-check (or
+  reapply) the full event subscription list after any manifest-editor save,
+  not just the field you meant to change.
+- **The `@`-mention handle resolves from `features.bot_user.display_name`,
+  not `display_information.name`.** The two are set in different places in
+  the manifest and can drift apart; if `@yourbot` isn't matching, check
+  `display_name` first.
+
 ## Depending on it
 
 ```yaml
