@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0
+
+- `readSlackDelivery(Uint8List)` and `slackRecordedEvent(Uint8List)`: the
+  pure parse, taken out of `slackGate`. The gate calls it after verifying,
+  and a consumer calls it on bytes read back from the logbook. The shape is
+  sniffed (JSON if it starts with `{`, otherwise a form), so it needs no
+  content type. A bad percent-encoding in a form body is now refused.
+  Before, it threw an `ArgumentError` out of the gate.
+- New typed fields: `SlackEvent.deliveredForUser` (from
+  `authorizations[].user_id`) and `SlackEvent.enterprise`
+  (`enterprise_id`), plus `SlackMessage.botId` and
+  `SlackMessage.channelType` (`SlackChannelType`).
+- **Breaking:** `SlackMessage.subtype` is a `SlackMessageSubtype` enum,
+  with `unnamed` for a subtype it doesn't name.
+- **Breaking:** `SlackSourceSpec.wakeEventTypes` is a
+  `Set<SlackEventType>`.
+- **Breaking:** `rawEvent` is `Map<String, Object?>`.
+- **Breaking:** `SlackRelay` takes a required `record`
+  (`LogbookWriter(socket).write`, or null). Every triggered delivery is
+  recorded as `slack-event` before Slack is answered, and anything but a
+  written or already-recorded entry is answered 503.
+- Loads `is_lint_rules`.
+
 ## 0.2.0
 
 - **Breaking:** what the gate hands on is a typed `SlackEvent`, not a

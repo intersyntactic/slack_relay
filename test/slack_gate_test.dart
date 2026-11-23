@@ -9,9 +9,9 @@ final now = DateTime.utc(2026, 10, 23, 12, 0, 0);
 final ts = (now.millisecondsSinceEpoch ~/ 1000).toString();
 
 SlackSourceSpec spec({Set<String>? allow}) => SlackSourceSpec(
-      signingSecret: secret,
-      teamIdAllowlist: allow ?? const {team},
-    );
+  signingSecret: secret,
+  teamIdAllowlist: allow ?? const {team},
+);
 
 Map<String, String> signedHeaders(
   List<int> body, {
@@ -29,29 +29,31 @@ Map<String, String> signedHeaders(
 List<int> jsonBody(Map<String, dynamic> payload) =>
     utf8.encode(jsonEncode(payload));
 
-List<int> formBody(Map<String, String> payload) =>
-    utf8.encode(payload.entries
-        .map((e) =>
-            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
-        .join('&'));
+List<int> formBody(Map<String, String> payload) => utf8.encode(
+  payload.entries
+      .map(
+        (e) =>
+            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+      )
+      .join('&'),
+);
 
 Map<String, dynamic> appMention({
   String channel = 'C999',
   String user = 'U999',
   String tsVal = '1700000000.000100',
   String? threadTs,
-}) =>
-    {
-      'type': 'event_callback',
-      'team_id': team,
-      'event': {
-        'type': 'app_mention',
-        'channel': channel,
-        'user': user,
-        'ts': tsVal,
-        'thread_ts': ?threadTs,
-      },
-    };
+}) => {
+  'type': 'event_callback',
+  'team_id': team,
+  'event': {
+    'type': 'app_mention',
+    'channel': channel,
+    'user': user,
+    'ts': tsVal,
+    'thread_ts': ?threadTs,
+  },
+};
 
 SlackGateDecision run({
   Map<String, String>? headers,
@@ -105,10 +107,7 @@ void main() {
 
     test('a missing signature header is rejected', () {
       final body = jsonBody(appMention());
-      final d = run(
-        body: body,
-        headers: {'X-Slack-Request-Timestamp': ts},
-      );
+      final d = run(body: body, headers: {'X-Slack-Request-Timestamp': ts});
       expect(d.outcome, SlackGateOutcome.reject);
       expect(d.reason, contains('x-slack-signature'));
     });
@@ -139,11 +138,10 @@ void main() {
 
   group('timestamp window', () {
     test('a timestamp more than 5 minutes in the past is rejected', () {
-      final oldTs = (now
-                  .subtract(const Duration(minutes: 6))
-                  .millisecondsSinceEpoch ~/
-              1000)
-          .toString();
+      final oldTs =
+          (now.subtract(const Duration(minutes: 6)).millisecondsSinceEpoch ~/
+                  1000)
+              .toString();
       final body = jsonBody(appMention());
       final d = run(
         body: body,
@@ -154,11 +152,9 @@ void main() {
     });
 
     test('a timestamp from the future is rejected the same way', () {
-      final futureTs = (now
-                  .add(const Duration(minutes: 10))
-                  .millisecondsSinceEpoch ~/
-              1000)
-          .toString();
+      final futureTs =
+          (now.add(const Duration(minutes: 10)).millisecondsSinceEpoch ~/ 1000)
+              .toString();
       final body = jsonBody(appMention());
       final d = run(
         body: body,
@@ -184,14 +180,16 @@ void main() {
       expect(d.reason, 'replay');
     });
 
-    test('digest is returned on both trigger and ignore for cache insertion',
-        () {
-      final triggered = run();
-      final replayed = run(hasSeen: (_) => true);
-      expect(triggered.digest, isNotNull);
-      expect(replayed.digest, isNotNull);
-      expect(triggered.digest, replayed.digest);
-    });
+    test(
+      'digest is returned on both trigger and ignore for cache insertion',
+      () {
+        final triggered = run();
+        final replayed = run(hasSeen: (_) => true);
+        expect(triggered.digest, isNotNull);
+        expect(replayed.digest, isNotNull);
+        expect(triggered.digest, replayed.digest);
+      },
+    );
   });
 
   group('url_verification', () {
@@ -375,16 +373,18 @@ void main() {
   });
 
   group('content type', () {
-    test('an unexpected content type is rejected after the signature holds',
-        () {
-      final body = jsonBody(appMention());
-      final d = run(
-        body: body,
-        headers: signedHeaders(body),
-        contentType: 'text/plain',
-      );
-      expect(d.outcome, SlackGateOutcome.reject);
-      expect(d.reason, contains('content type'));
-    });
+    test(
+      'an unexpected content type is rejected after the signature holds',
+      () {
+        final body = jsonBody(appMention());
+        final d = run(
+          body: body,
+          headers: signedHeaders(body),
+          contentType: 'text/plain',
+        );
+        expect(d.outcome, SlackGateOutcome.reject);
+        expect(d.reason, contains('content type'));
+      },
+    );
   });
 }

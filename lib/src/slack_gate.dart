@@ -21,9 +21,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import 'slack_delivery.dart';
 import 'slack_event.dart';
 
 /// What the caller should do.
@@ -86,7 +88,7 @@ class SlackSourceSpec {
   /// Inner event types from an `event_callback` that should wake listeners.
   /// Anything else (including a well-known-but-uninteresting kind) is
   /// [SlackGateOutcome.ignore]d.
-  final Set<String> wakeEventTypes;
+  final Set<SlackEventType> wakeEventTypes;
 
   /// Slash commands that should wake listeners.
   final Set<String> wakeCommands;
@@ -95,10 +97,10 @@ class SlackSourceSpec {
     required this.signingSecret,
     this.teamIdAllowlist = const {},
     this.wakeEventTypes = const {
-      'app_mention',
-      'message',
-      'reaction_added',
-      'reaction_removed',
+      SlackEventType.appMention,
+      SlackEventType.message,
+      SlackEventType.reactionAdded,
+      SlackEventType.reactionRemoved,
     },
     this.wakeCommands = const {'/model', '/connect', '/forget'},
   });
@@ -108,10 +110,7 @@ class SlackSourceSpec {
 /// Returned WITHOUT the `v0=` prefix; the caller compares the suffixes.
 String slackSignBody(String secret, String timestamp, List<int> body) {
   final mac = Hmac(sha256, utf8.encode(secret));
-  final input = <int>[
-    ...utf8.encode('v0:$timestamp:'),
-    ...body,
-  ];
+  final input = <int>[...utf8.encode('v0:$timestamp:'), ...body];
   return mac.convert(input).toString();
 }
 
@@ -216,39 +215,13 @@ SlackGateDecision slackGate({
   // and a tampered body never gets this far.
   final digest = expected;
   if (hasSeen != null && hasSeen(digest)) {
-    return SlackGateDecision(
-      SlackGateOutcome.ignore,
-      'replay',
-      digest: digest,
-    );
+    return SlackGateDecision(SlackGateOutcome.ignore, 'replay', digest: digest);
   }
 
-  // Parse. The content type tells us which body shape to expect; both have
-  // already been signed, so a lie here only turns a valid delivery into a
-  // parse failure.
+  // Both body shapes Slack sends have already been signed, so a lying
+  // content type only turns a valid delivery into a refusal.
   final mime = contentType.split(';').first.trim().toLowerCase();
-  final Map<String, dynamic> payload;
-  if (mime == 'application/json') {
-    try {
-      final decoded = jsonDecode(utf8.decode(body));
-      if (decoded is! Map) {
-        return SlackGateDecision(
-          SlackGateOutcome.reject,
-          'json body is not an object',
-          digest: digest,
-        );
-      }
-      payload = decoded.cast<String, dynamic>();
-    } on FormatException {
-      return SlackGateDecision(
-        SlackGateOutcome.reject,
-        'json body did not parse',
-        digest: digest,
-      );
-    }
-  } else if (mime == 'application/x-www-form-urlencoded') {
-    payload = Uri.splitQueryString(utf8.decode(body));
-  } else {
+  if (_SlackBodyType.parse(mime) == null) {
     return SlackGateDecision(
       SlackGateOutcome.reject,
       'unexpected content type "$mime"',
@@ -256,261 +229,77 @@ SlackGateDecision slackGate({
     );
   }
 
-  // url_verification is the one-time handshake Slack makes when the webhook
-  // URL is first configured. It carries a `challenge` field we must echo
-  // back; no team_id is present because the app may not be installed
-  // anywhere yet.
-  if (payload['type'] == 'url_verification') {
-    final challenge = payload['challenge'];
-    if (challenge is! String || challenge.isEmpty) {
+  final SlackEvent event;
+  switch (readSlackDelivery(Uint8List.fromList(body))) {
+    case SlackMalformed(:final reason):
+      return SlackGateDecision(SlackGateOutcome.reject, reason, digest: digest);
+    case SlackNotCovered(:final reason):
       return SlackGateDecision(
-        SlackGateOutcome.reject,
-        'url_verification missing challenge',
+        SlackGateOutcome.ignore,
+        'not covered: $reason',
         digest: digest,
       );
-    }
-    return SlackGateDecision(
-      SlackGateOutcome.urlVerification,
-      'handshake',
-      challenge: challenge,
-      digest: digest,
-    );
+    case SlackHandshake(:final challenge):
+      return SlackGateDecision(
+        SlackGateOutcome.urlVerification,
+        'handshake',
+        challenge: challenge,
+        digest: digest,
+      );
+    case SlackDeliveredEvent(event: final e):
+      event = e;
   }
 
   // Workspace allowlist. Checked AFTER the signature, so timing cannot be
   // used to probe which workspaces are allowed.
-  final teamId = _teamIdOf(payload);
-  if (teamId == null) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'no team_id in payload',
-      digest: digest,
-    );
-  }
   if (spec.teamIdAllowlist.isNotEmpty &&
-      !spec.teamIdAllowlist.contains(teamId)) {
+      !spec.teamIdAllowlist.contains(event.workspace)) {
     return SlackGateDecision(
       SlackGateOutcome.reject,
-      'team "$teamId" not in allowlist',
+      'team "${event.workspace}" not in allowlist',
       digest: digest,
     );
   }
 
-  // Three Slack shapes we recognise: event_callback, slash command,
-  // view_submission (deferred). Anything else is ignored by name so the log
-  // can tell "quiet" from "unknown".
-  if (payload['type'] == 'event_callback') {
-    return _event(spec, payload, teamId, digest);
-  }
-  if (payload.containsKey('command')) {
-    return _command(spec, payload, teamId, digest);
-  }
-  return SlackGateDecision(
-    SlackGateOutcome.ignore,
-    'unknown payload type "${payload['type']}"',
-    digest: digest,
-  );
-}
-
-String? _teamIdOf(Map<String, dynamic> payload) {
-  final direct = payload['team_id'];
-  if (direct is String && direct.isNotEmpty) return direct;
-  final team = payload['team'];
-  if (team is Map && team['id'] is String) return team['id'] as String;
-  return null;
-}
-
-SlackGateDecision _event(
-  SlackSourceSpec spec,
-  Map<String, dynamic> payload,
-  String teamId,
-  String digest,
-) {
-  final event = payload['event'];
-  if (event is! Map) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'event_callback has no event object',
-      digest: digest,
-    );
-  }
-  final type = event['type'];
-  if (type is! String || !spec.wakeEventTypes.contains(type)) {
-    return SlackGateDecision(
-      SlackGateOutcome.ignore,
-      'quiet event type "$type"',
-      digest: digest,
-    );
-  }
-  // Reaction events put the target under `event.item`, not at `event.channel`
-  // / `event.ts`, and carry no `thread_ts` — the journey anchor only becomes
-  // known after a mirror lookup, which the parser owns. So the reaction
-  // branch goes out with `thread_ts: null` and a `target_ts`, and the parser
-  // does the rest.
-  if (type == 'reaction_added' || type == 'reaction_removed') {
-    return _reactionEvent(event, type, teamId, digest);
-  }
-  final channel = event['channel'];
-  if (channel is! String || channel.isEmpty) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'event missing channel',
-      digest: digest,
-    );
-  }
-  final user = event['user'];
-  final ts = event['ts'];
-  final threadTs = event['thread_ts'];
-  // The conversation anchor: thread_ts when the event is already in a thread,
-  // the message's own ts when it is a top-level mention that will seed one.
-  final anchor = (threadTs is String && threadTs.isNotEmpty)
-      ? threadTs
-      : (ts is String ? ts : null);
-  if (anchor == null) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'event missing ts and thread_ts',
-      digest: digest,
-    );
-  }
-  // A message_changed / message_deleted subtype moves fields inside the
-  // event: the "current" user, ts and text live under `event.message` (and
-  // `event.previous_message` for edits). The parser consumes `raw_event`
-  // directly for those, so we carry it through without re-shaping here.
-  final subtype = event['subtype'];
-  final text = event['text'];
-  return SlackGateDecision(
-    SlackGateOutcome.trigger,
-    'event "$type"',
-    event: SlackMessage(
-      workspace: teamId,
-      channel: channel,
-      threadTs: anchor,
-      mention: type == 'app_mention',
-      user: user is String ? user : null,
-      text: text is String ? text : null,
-      eventTs: ts is String ? ts : null,
-      subtype: subtype is String ? subtype : null,
-      rawThreadTs: threadTs is String && threadTs.isNotEmpty ? threadTs : null,
-      rawEvent: event.cast<String, dynamic>(),
+  (bool, String) ofType(SlackEventType type) =>
+      (spec.wakeEventTypes.contains(type), 'event "${type.wireName}"');
+  final (wakes, name) = switch (event) {
+    SlackCommand(:final command) => (
+      spec.wakeCommands.contains(command),
+      'command "$command"',
     ),
-    digest: digest,
-  );
+    SlackMessage(mention: true) => ofType(SlackEventType.appMention),
+    SlackMessage() => ofType(SlackEventType.message),
+    SlackReactionAdded() => ofType(SlackEventType.reactionAdded),
+    SlackReactionRemoved() => ofType(SlackEventType.reactionRemoved),
+  };
+  return wakes
+      ? SlackGateDecision(
+          SlackGateOutcome.trigger,
+          name,
+          event: event,
+          digest: digest,
+        )
+      : SlackGateDecision(
+          SlackGateOutcome.ignore,
+          'quiet $name',
+          digest: digest,
+        );
 }
 
-SlackGateDecision _reactionEvent(
-  Map<dynamic, dynamic> event,
-  String type,
-  String teamId,
-  String digest,
-) {
-  final item = event['item'];
-  if (item is! Map) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'reaction event missing item',
-      digest: digest,
-    );
-  }
-  // Only message reactions matter to the mirror. `file`/`file_comment` items
-  // exist in Slack's API but have no journey meaning here.
-  final itemType = item['type'];
-  if (itemType != 'message') {
-    return SlackGateDecision(
-      SlackGateOutcome.ignore,
-      'reaction on non-message item "$itemType"',
-      digest: digest,
-    );
-  }
-  final channel = item['channel'];
-  final targetTs = item['ts'];
-  if (channel is! String || channel.isEmpty || targetTs is! String) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'reaction item missing channel or ts',
-      digest: digest,
-    );
-  }
-  final user = event['user'];
-  final reaction = event['reaction'];
-  final eventTs = event['event_ts'];
-  if (user is! String || reaction is! String || eventTs is! String) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'reaction event missing user, reaction or event_ts',
-      digest: digest,
-    );
-  }
-  final rawEvent = event.cast<String, dynamic>();
-  return SlackGateDecision(
-    SlackGateOutcome.trigger,
-    'event "$type"',
-    event: type == 'reaction_added'
-        ? SlackReactionAdded(
-            workspace: teamId,
-            channel: channel,
-            user: user,
-            reaction: reaction,
-            targetTs: targetTs,
-            eventTs: eventTs,
-            rawEvent: rawEvent,
-          )
-        : SlackReactionRemoved(
-            workspace: teamId,
-            channel: channel,
-            user: user,
-            reaction: reaction,
-            targetTs: targetTs,
-            eventTs: eventTs,
-            rawEvent: rawEvent,
-          ),
-    digest: digest,
-  );
-}
+/// The media types Slack posts a body as.
+enum _SlackBodyType {
+  json('application/json'),
+  form('application/x-www-form-urlencoded');
 
-SlackGateDecision _command(
-  SlackSourceSpec spec,
-  Map<String, dynamic> payload,
-  String teamId,
-  String digest,
-) {
-  final command = payload['command'];
-  if (command is! String || !spec.wakeCommands.contains(command)) {
-    return SlackGateDecision(
-      SlackGateOutcome.ignore,
-      'quiet command "$command"',
-      digest: digest,
-    );
+  const _SlackBodyType(this.mime);
+
+  final String mime;
+
+  static _SlackBodyType? parse(String mime) {
+    for (final t in values) {
+      if (t.mime == mime) return t;
+    }
+    return null;
   }
-  final channel = payload['channel_id'];
-  final user = payload['user_id'];
-  if (channel is! String || channel.isEmpty || user is! String) {
-    return SlackGateDecision(
-      SlackGateOutcome.reject,
-      'command missing channel_id or user_id',
-      digest: digest,
-    );
-  }
-  // thread_ts is present on slash commands only when Slack passes it; absent
-  // for a top-level command. The receiver's model-selection scope depends on
-  // this (per-thread vs channel default) and treats a missing one explicitly.
-  final threadTs = payload['thread_ts'];
-  return SlackGateDecision(
-    SlackGateOutcome.trigger,
-    'command "$command"',
-    event: SlackCommand(
-      workspace: teamId,
-      channel: channel,
-      threadTs: threadTs is String && threadTs.isNotEmpty ? threadTs : null,
-      user: user,
-      command: command,
-      text: payload['text'] is String ? payload['text'] as String : '',
-      triggerId:
-          payload['trigger_id'] is String ? payload['trigger_id'] as String : null,
-      responseUrl: payload['response_url'] is String
-          ? payload['response_url'] as String
-          : null,
-    ),
-    digest: digest,
-  );
 }

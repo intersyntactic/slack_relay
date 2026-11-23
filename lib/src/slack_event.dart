@@ -11,12 +11,127 @@
 /// construction is a domain concern that already lives in the consuming
 /// module (`SlackActorId.forWorkspace`), and isn't duplicated here.
 sealed class SlackEvent {
-  const SlackEvent({required this.workspace, required this.channel});
+  const SlackEvent({
+    required this.workspace,
+    required this.channel,
+    this.enterprise,
+    this.deliveredForUser,
+  });
 
   /// The workspace's team id.
   final String workspace;
 
   final String channel;
+
+  /// The Enterprise Grid org's id, when the workspace is in one.
+  final String? enterprise;
+
+  /// The user the delivery was for: the outer payload's
+  /// `authorizations[].user_id`, which for a bot install is the app's own bot
+  /// user. Lets a consumer tell its own bot's messages from another bot's.
+  /// Null for a slash command, which carries no authorizations.
+  final String? deliveredForUser;
+}
+
+/// The Slack event types a [SlackEvent] can be read from.
+enum SlackEventType {
+  appMention('app_mention'),
+  message('message'),
+  reactionAdded('reaction_added'),
+  reactionRemoved('reaction_removed');
+
+  const SlackEventType(this.wireName);
+
+  /// The `event.type` Slack sends.
+  final String wireName;
+
+  /// The type Slack calls [wireName]; null for one no [SlackEvent] covers.
+  static SlackEventType? parse(String wireName) {
+    for (final t in values) {
+      if (t.wireName == wireName) return t;
+    }
+    return null;
+  }
+}
+
+/// Where a message was posted, as Slack's `channel_type` says.
+enum SlackChannelType {
+  /// A public channel.
+  channel('channel'),
+
+  /// A private channel.
+  group('group'),
+
+  /// A direct message with one person.
+  im('im'),
+
+  /// A group direct message.
+  mpim('mpim'),
+
+  /// The app's own Messages tab.
+  appHome('app_home');
+
+  const SlackChannelType(this.wireName);
+
+  final String wireName;
+
+  /// The type Slack calls [wireName]; null for one not named here.
+  static SlackChannelType? parse(String wireName) {
+    for (final t in values) {
+      if (t.wireName == wireName) return t;
+    }
+    return null;
+  }
+}
+
+/// A message's `subtype`, the kinds Slack documents. A subtype Slack sends
+/// that isn't named here is [unnamed]; its wire name is still in
+/// [SlackMessage.rawEvent].
+enum SlackMessageSubtype {
+  botMessage('bot_message'),
+  meMessage('me_message'),
+  messageChanged('message_changed'),
+  messageDeleted('message_deleted'),
+  messageReplied('message_replied'),
+  threadBroadcast('thread_broadcast'),
+  fileShare('file_share'),
+  channelJoin('channel_join'),
+  channelLeave('channel_leave'),
+  channelTopic('channel_topic'),
+  channelPurpose('channel_purpose'),
+  channelName('channel_name'),
+  channelArchive('channel_archive'),
+  channelUnarchive('channel_unarchive'),
+  channelConvertToPrivate('channel_convert_to_private'),
+  channelConvertToPublic('channel_convert_to_public'),
+  channelPostingPermissions('channel_posting_permissions'),
+  groupJoin('group_join'),
+  groupLeave('group_leave'),
+  groupTopic('group_topic'),
+  groupPurpose('group_purpose'),
+  groupName('group_name'),
+  groupArchive('group_archive'),
+  groupUnarchive('group_unarchive'),
+  pinnedItem('pinned_item'),
+  unpinnedItem('unpinned_item'),
+  reminderAdd('reminder_add'),
+  ekmAccessDenied('ekm_access_denied'),
+  assistantAppThread('assistant_app_thread'),
+  huddleThread('huddle_thread'),
+  unnamed('');
+
+  const SlackMessageSubtype(this.wireName);
+
+  /// The `subtype` Slack sends; empty for [unnamed].
+  final String wireName;
+
+  /// The subtype Slack calls [wireName], [unnamed] for one not named here.
+  static SlackMessageSubtype parse(String wireName) {
+    for (final t in values) {
+      if (t != unnamed && t.wireName == wireName) return t;
+    }
+    return unnamed;
+  }
 }
 
 /// An `app_mention` or plain `message`. Covers every subtype Slack sends
@@ -29,8 +144,12 @@ final class SlackMessage extends SlackEvent {
     required super.workspace,
     required super.channel,
     required this.threadTs,
+    super.enterprise,
+    super.deliveredForUser,
     this.mention = false,
     this.user,
+    this.botId,
+    this.channelType,
     this.text,
     this.eventTs,
     this.subtype,
@@ -46,13 +165,21 @@ final class SlackMessage extends SlackEvent {
   final bool mention;
 
   final String? user;
+
+  /// The `bot_id` of the bot that posted it; null when a person did.
+  final String? botId;
+
+  /// Null on `app_mention`, which Slack sends without one, and for a type
+  /// [SlackChannelType] doesn't name.
+  final SlackChannelType? channelType;
+
   final String? text;
 
   /// The message's own `ts` (not necessarily [threadTs]).
   final String? eventTs;
 
-  /// `message_changed`, `message_deleted`, or null for a plain send.
-  final String? subtype;
+  /// Null for a plain send.
+  final SlackMessageSubtype? subtype;
 
   /// `event.thread_ts` exactly as Slack sent it, before being folded into
   /// [threadTs]. Null when the message was top-level.
@@ -61,7 +188,7 @@ final class SlackMessage extends SlackEvent {
   /// The full inner event, unread by the gate, for a subtype no typed field
   /// here covers — `message_changed`'s `message`/`previous_message`,
   /// `message_deleted`'s `deleted_ts`, and anything not yet named.
-  final Map<String, dynamic> rawEvent;
+  final Map<String, Object?> rawEvent;
 }
 
 /// A `reaction_added` on a message.
@@ -69,6 +196,8 @@ final class SlackReactionAdded extends SlackEvent {
   const SlackReactionAdded({
     required super.workspace,
     required super.channel,
+    super.enterprise,
+    super.deliveredForUser,
     required this.user,
     required this.reaction,
     required this.targetTs,
@@ -85,7 +214,7 @@ final class SlackReactionAdded extends SlackEvent {
   final String targetTs;
 
   final String eventTs;
-  final Map<String, dynamic> rawEvent;
+  final Map<String, Object?> rawEvent;
 }
 
 /// A `reaction_removed` on a message.
@@ -93,6 +222,8 @@ final class SlackReactionRemoved extends SlackEvent {
   const SlackReactionRemoved({
     required super.workspace,
     required super.channel,
+    super.enterprise,
+    super.deliveredForUser,
     required this.user,
     required this.reaction,
     required this.targetTs,
@@ -104,7 +235,7 @@ final class SlackReactionRemoved extends SlackEvent {
   final String reaction;
   final String targetTs;
   final String eventTs;
-  final Map<String, dynamic> rawEvent;
+  final Map<String, Object?> rawEvent;
 }
 
 /// A slash command Slack was configured to send.
@@ -112,6 +243,7 @@ final class SlackCommand extends SlackEvent {
   const SlackCommand({
     required super.workspace,
     required super.channel,
+    super.enterprise,
     required this.user,
     required this.command,
     this.threadTs,

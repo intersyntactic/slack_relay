@@ -4,6 +4,8 @@
 /// [SlackRelay.onEvent] (is_slack_module, for intersyntactic).
 library;
 
+export 'src/record_delivery.dart' show WritesLogbookEntry;
+export 'src/slack_delivery.dart';
 export 'src/slack_event.dart';
 export 'src/slack_gate.dart';
 export 'src/slack_relay.dart';

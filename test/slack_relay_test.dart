@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:is_docking_station_api/is_docking_station_api.dart'
+    show RelayedEvent;
+import 'package:is_logbook_client/is_logbook_client.dart';
 import 'package:is_slack_relay/is_slack_relay.dart';
 import 'package:test/test.dart';
 
@@ -49,14 +53,14 @@ void main() {
     test('url_verification echoes the challenge', () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
       final relay = SlackRelay(
+        record: null,
         spec: const SlackSourceSpec(signingSecret: secret),
         now: () => at,
       );
       final base = await _serve(relay);
-      final body = utf8.encode(jsonEncode({
-        'type': 'url_verification',
-        'challenge': 'xyz',
-      }));
+      final body = utf8.encode(
+        jsonEncode({'type': 'url_verification', 'challenge': 'xyz'}),
+      );
       final ts = _ts(at);
       final res = await _post(
         base,
@@ -72,12 +76,12 @@ void main() {
       expect(await res.transform(utf8.decoder).join(), 'xyz');
     });
 
-    test('a correctly signed app_mention is 200 and calls onEvent',
-        () async {
+    test('a correctly signed app_mention is 200 and calls onEvent', () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
       final events = <SlackEvent>[];
       final dispatched = Completer<void>();
       final relay = SlackRelay(
+        record: null,
         spec: SlackSourceSpec(
           signingSecret: secret,
           teamIdAllowlist: const {team},
@@ -89,17 +93,19 @@ void main() {
         },
       );
       final base = await _serve(relay);
-      final body = utf8.encode(jsonEncode({
-        'type': 'event_callback',
-        'team_id': team,
-        'event': {
-          'type': 'app_mention',
-          'channel': 'C1',
-          'user': 'U1',
-          'text': 'hi bot',
-          'ts': '1700000000.000100',
-        },
-      }));
+      final body = utf8.encode(
+        jsonEncode({
+          'type': 'event_callback',
+          'team_id': team,
+          'event': {
+            'type': 'app_mention',
+            'channel': 'C1',
+            'user': 'U1',
+            'text': 'hi bot',
+            'ts': '1700000000.000100',
+          },
+        }),
+      );
       final ts = _ts(at);
       final res = await _post(
         base,
@@ -119,11 +125,11 @@ void main() {
       expect(event.channel, 'C1');
     });
 
-    test('a wrong signature answers 401 and does not call onEvent',
-        () async {
+    test('a wrong signature answers 401 and does not call onEvent', () async {
       final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
       final events = <SlackEvent>[];
       final relay = SlackRelay(
+        record: null,
         spec: const SlackSourceSpec(signingSecret: secret),
         now: () => at,
         onEvent: (event) async => events.add(event),
@@ -148,49 +154,67 @@ void main() {
     });
 
     test(
-        'a replay of a correctly signed event is accepted but not re-dispatched',
-        () async {
-      final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
-      final events = <SlackEvent>[];
-      final relay = SlackRelay(
-        spec: SlackSourceSpec(
-          signingSecret: secret,
-          teamIdAllowlist: const {team},
-        ),
-        now: () => at,
-        onEvent: (event) async => events.add(event),
-      );
-      final base = await _serve(relay);
-      final body = utf8.encode(jsonEncode({
-        'type': 'event_callback',
-        'team_id': team,
-        'event': {
-          'type': 'app_mention',
-          'channel': 'C1',
-          'user': 'U1',
-          'ts': '1700000000.000100',
-        },
-      }));
-      final ts = _ts(at);
-      final headers = {
-        'X-Slack-Request-Timestamp': ts,
-        'X-Slack-Signature': _sig(ts, body),
-      };
-      final first = await _post(base, '/webhook/slack',
-          contentType: 'application/json', body: body, headers: headers);
-      expect(first.statusCode, 200);
-      // Give the first dispatch time to land before replaying.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      final second = await _post(base, '/webhook/slack',
-          contentType: 'application/json', body: body, headers: headers);
-      expect(second.statusCode, 200);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(events, hasLength(1),
-          reason: 'replay should ACK 200 but not re-run the pipeline');
-    });
+      'a replay of a correctly signed event is accepted but not re-dispatched',
+      () async {
+        final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
+        final events = <SlackEvent>[];
+        final relay = SlackRelay(
+          record: null,
+          spec: SlackSourceSpec(
+            signingSecret: secret,
+            teamIdAllowlist: const {team},
+          ),
+          now: () => at,
+          onEvent: (event) async => events.add(event),
+        );
+        final base = await _serve(relay);
+        final body = utf8.encode(
+          jsonEncode({
+            'type': 'event_callback',
+            'team_id': team,
+            'event': {
+              'type': 'app_mention',
+              'channel': 'C1',
+              'user': 'U1',
+              'ts': '1700000000.000100',
+            },
+          }),
+        );
+        final ts = _ts(at);
+        final headers = {
+          'X-Slack-Request-Timestamp': ts,
+          'X-Slack-Signature': _sig(ts, body),
+        };
+        final first = await _post(
+          base,
+          '/webhook/slack',
+          contentType: 'application/json',
+          body: body,
+          headers: headers,
+        );
+        expect(first.statusCode, 200);
+        // Give the first dispatch time to land before replaying.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        final second = await _post(
+          base,
+          '/webhook/slack',
+          contentType: 'application/json',
+          body: body,
+          headers: headers,
+        );
+        expect(second.statusCode, 200);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(
+          events,
+          hasLength(1),
+          reason: 'replay should ACK 200 but not re-run the pipeline',
+        );
+      },
+    );
 
     test('a path other than /webhook/slack is 404', () async {
       final relay = SlackRelay(
+        record: null,
         spec: const SlackSourceSpec(signingSecret: secret),
       );
       final base = await _serve(relay);
@@ -202,6 +226,148 @@ void main() {
         headers: const {},
       );
       expect(res.statusCode, 404);
+    });
+  });
+
+  group('recording in the logbook', () {
+    final at = DateTime.utc(2026, 10, 23, 12, 0, 0);
+    final body = utf8.encode(
+      jsonEncode({
+        'type': 'event_callback',
+        'team_id': team,
+        'authorizations': [
+          {'user_id': 'UBOT', 'is_bot': true},
+        ],
+        'event': {
+          'type': 'message',
+          'channel': 'D1',
+          'channel_type': 'im',
+          'user': 'U1',
+          'text': 'deployed, please test',
+          'ts': '1700000000.000100',
+        },
+      }),
+    );
+
+    /// Posts [payload] (default [body]) signed, and waits for any dispatch.
+    Future<int> post(SlackRelay relay, {List<int>? payload}) async {
+      final base = await _serve(relay);
+      final b = payload ?? body;
+      final ts = _ts(at);
+      final res = await _post(
+        base,
+        '/webhook/slack',
+        contentType: 'application/json',
+        body: b,
+        headers: {
+          'X-Slack-Request-Timestamp': ts,
+          'X-Slack-Signature': _sig(ts, b),
+        },
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return res.statusCode;
+    }
+
+    test('an accepted event is recorded as slack-event, and reads back as '
+        'the same event', () async {
+      final written = <(Kind, List<int>)>[];
+      final events = <SlackEvent>[];
+      final relay = SlackRelay(
+        spec: const SlackSourceSpec(signingSecret: secret),
+        now: () => at,
+        record: (kind, entry) async {
+          written.add((kind, entry));
+          return Written(ObjectId.of(Uint8List.fromList(entry)));
+        },
+        onEvent: (event) async => events.add(event),
+      );
+      expect(await post(relay), 200);
+      expect(events, hasLength(1));
+
+      final (kind, entry) = written.single;
+      expect(kind.name, 'slack-event');
+      final recorded = RelayedEvent.read(
+        ObjectId.of(Uint8List.fromList(entry)),
+        kind,
+        Uint8List.fromList(entry),
+      );
+      expect(recorded, isNotNull);
+      expect(recorded!.at, at);
+      expect(recorded.bytes, body);
+      final back = slackRecordedEvent(recorded.bytes) as SlackMessage?;
+      expect(back?.text, 'deployed, please test');
+      expect(back?.deliveredForUser, 'UBOT');
+      expect(back?.channelType, SlackChannelType.im);
+    });
+
+    test('already recorded is safe in the logbook: 200', () async {
+      final events = <SlackEvent>[];
+      final relay = SlackRelay(
+        spec: const SlackSourceSpec(signingSecret: secret),
+        now: () => at,
+        record: (kind, entry) async =>
+            AlreadyRecorded(ObjectId.of(Uint8List.fromList(entry))),
+        onEvent: (event) async => events.add(event),
+      );
+      expect(await post(relay), 200);
+      expect(events, hasLength(1));
+    });
+
+    for (final (name, answer) in [
+      ('failed', const WriteFailed('disk full')),
+      ('refused', const WriteRefused('kind not allowed for sender')),
+      ('unanswered', const Unanswered('socket: no such file')),
+    ]) {
+      test(
+        '$name: 503, not dispatched, and the same bytes can be sent again',
+        () async {
+          final events = <SlackEvent>[];
+          var answers = <WriteResult>[answer];
+          final relay = SlackRelay(
+            spec: const SlackSourceSpec(signingSecret: secret),
+            now: () => at,
+            record: (kind, entry) async {
+              final next = answers.isEmpty
+                  ? Written(ObjectId.of(Uint8List.fromList(entry)))
+                  : answers.first;
+              answers = answers.skip(1).toList();
+              return next;
+            },
+            onEvent: (event) async => events.add(event),
+          );
+          expect(await post(relay), 503);
+          expect(events, isEmpty);
+          expect(await post(relay), 200);
+          expect(events, hasLength(1));
+        },
+      );
+    }
+
+    test('a writer slower than the timeout is 503', () async {
+      final relay = SlackRelay(
+        spec: const SlackSourceSpec(signingSecret: secret),
+        now: () => at,
+        recordTimeout: const Duration(milliseconds: 20),
+        record: (kind, entry) => Completer<WriteResult>().future,
+      );
+      expect(await post(relay), 503);
+    });
+
+    test('url_verification is not recorded', () async {
+      var writes = 0;
+      final relay = SlackRelay(
+        spec: const SlackSourceSpec(signingSecret: secret),
+        now: () => at,
+        record: (kind, entry) async {
+          writes++;
+          return Written(ObjectId.of(Uint8List.fromList(entry)));
+        },
+      );
+      final handshake = utf8.encode(
+        jsonEncode({'type': 'url_verification', 'challenge': 'xyz'}),
+      );
+      expect(await post(relay, payload: handshake), 200);
+      expect(writes, 0);
     });
   });
 }

@@ -12,13 +12,17 @@ library;
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'record_delivery.dart';
 import 'slack_event.dart';
 import 'slack_gate.dart';
 
 final class SlackRelay {
   SlackRelay({
     required this.spec,
+    required this.record,
+    this.recordTimeout = const Duration(seconds: 2),
     this.onEvent = _logEvent,
     DateTime Function()? now,
     this.bodyTimeout = const Duration(seconds: 10),
@@ -33,6 +37,16 @@ final class SlackRelay {
   static const path = '/webhook/slack';
 
   final SlackSourceSpec spec;
+
+  /// Where each accepted delivery is recorded before Slack is answered:
+  /// `LogbookWriter(socket).write` for the writer at `LOGBOOK_SOCKET`. Only
+  /// once the logbook holds it is Slack answered 200; otherwise 503, and
+  /// Slack sends it again. Null records nothing, which is only right for a
+  /// relay that feeds no logbook.
+  final WritesLogbookEntry? record;
+
+  /// How long to wait for [record]. Slack gives up on a request after 3s.
+  final Duration recordTimeout;
 
   /// What becomes of an arrival once Slack has its ACK. Defaults to a log
   /// line, so the relay runs end to end before a receiver is wired in.
@@ -57,12 +71,13 @@ final class SlackRelay {
 
   Future<void> handle(HttpRequest req) async {
     try {
-      if (req.uri.path != path) {
-        await _end(req, HttpStatus.notFound);
-      } else if (req.method != 'POST') {
-        await _end(req, HttpStatus.methodNotAllowed);
-      } else {
-        await _webhook(req);
+      switch ((req.uri.path, req.method)) {
+        case (path, 'POST'):
+          await _webhook(req);
+        case (path, _):
+          await _end(req, HttpStatus.methodNotAllowed);
+        default:
+          await _end(req, HttpStatus.notFound);
       }
     } on Exception catch (e) {
       log('slack relay: $e');
@@ -126,10 +141,24 @@ final class SlackRelay {
         req.response.write(d.challenge ?? '');
         await req.response.close();
       case SlackGateOutcome.trigger:
-        // ACK first, run the handler in the background. Slack times out
+        if (record case final write?) {
+          final (recorded, why) = await recordDelivery(
+            write,
+            bytes: Uint8List.fromList(body),
+            at: now.toUtc(),
+            timeout: recordTimeout,
+          );
+          log('slack relay: logbook: $why');
+          if (!recorded) {
+            // Forget the digest, so a resend of these exact bytes is not
+            // taken for a replay of one that was never recorded.
+            if (d.digest case final digest?) _seen.remove(digest);
+            return _end(req, HttpStatus.serviceUnavailable);
+          }
+        }
+        // ACK, then run the handler in the background. Slack times out
         // after 3s and retries up to 3x; the handler often needs longer
-        // than that, and the replay cache guards against the retries that
-        // fire if we are mid-run.
+        // than that.
         await _end(req, HttpStatus.ok);
         unawaited(_dispatch(d.event!));
       case SlackGateOutcome.ignore:
