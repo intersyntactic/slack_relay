@@ -19,6 +19,8 @@ final relay = SlackRelay(
     signingSecret: Platform.environment['SLACK_SIGNING_SECRET']!,
     teamIdAllowlist: {'T0123'},
   ),
+  // Each accepted delivery is recorded before Slack is answered.
+  record: LogbookWriter(Platform.environment['LOGBOOK_SOCKET']!).write,
   onEvent: (event) async {
     switch (event) {
       case SlackMessage(:final text):
@@ -40,10 +42,16 @@ await for (final req in server) {
 - `slackGate` (`SlackSourceSpec`, `SlackGateDecision`, `SlackGateOutcome`):
   the pure decision function. Given headers, a body, a content type, and
   the current time, it verifies the HMAC signature, checks the timestamp
-  window, consults a caller-owned `hasSeen` closure for replay, and reads
-  the Slack payload into a `SlackEvent`. No socket, no clock of its own, no
-  Slack dependency beyond `crypto` — every case is testable with plain
-  values.
+  window, consults a caller-owned `hasSeen` closure for replay, reads the
+  payload with `readSlackDelivery`, and applies the workspace allowlist and
+  wake set. No socket and no clock of its own, so every case is testable
+  with plain values.
+- `readSlackDelivery` / `slackRecordedEvent`: the pure parse of one
+  delivery's bytes, with no signature check, content type or wake set. The
+  gate runs it after verifying. A consumer runs `slackRecordedEvent` on the
+  bytes it reads back from the logbook, so both sides share one parse. The
+  body's shape is sniffed: JSON if it starts with `{`, a slash command's
+  form otherwise.
 - `SlackEvent` (sealed; `SlackMessage`, `SlackReactionAdded`,
   `SlackReactionRemoved`, `SlackCommand`): Slack's own record of what
   happened, each case named for Slack's event or command. Carries content —
@@ -59,12 +67,18 @@ await for (final req in server) {
   backgrounded dispatch for `trigger`, 200 for `ignore`, 401 for `reject`,
   404 for any other path), and calls `onEvent` with whatever the gate
   decided to trigger on.
+- Recording: before a `trigger` is answered, its bytes are written to the
+  logbook through `record` as a `slack-event` entry, in the docking
+  station's `{at, bytes}` form. A written or already-recorded entry gets
+  200. Anything else gets 503, so Slack sends the event again. The
+  logbook writer's sender table must let the relay's user send
+  `slack-event`.
 
 ## Why split from the module that uses it
 
 Same shape as `is_github_relay` has from its own consumers: ingress and
 transport (verifying a sender, deduping, answering on time) is a different
-concern from domain logic (turning a doorbell into node shapes, mirrors,
+concern from domain logic (turning an event into node shapes, mirrors,
 kickoff records), and the two don't need to version together. A module
 with Slack domain logic depends on this package, not the other way around.
 
