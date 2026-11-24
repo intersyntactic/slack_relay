@@ -108,6 +108,25 @@ void main() {
       expect(m.enterprise, 'E1');
     });
 
+    test('event_id, the same on every retry, is carried', () {
+      final bytes = eventCallback(
+        {'type': 'message', 'channel': 'C1', 'user': 'U1', 'ts': '1.1'},
+        outer: {'event_id': 'Ev123'},
+      );
+      expect(message(bytes)!.eventId, 'Ev123');
+      final reaction = eventCallback(
+        {
+          'type': 'reaction_added',
+          'user': 'U1',
+          'reaction': 'x',
+          'event_ts': '2.2',
+          'item': {'type': 'message', 'channel': 'C1', 'ts': '1.1'},
+        },
+        outer: {'event_id': 'Ev456'},
+      );
+      expect(slackRecordedEvent(reaction)!.eventId, 'Ev456');
+    });
+
     test('no enterprise, no authorizations: both null', () {
       final m = message(
         json({

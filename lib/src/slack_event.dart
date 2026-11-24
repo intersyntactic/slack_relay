@@ -16,6 +16,7 @@ sealed class SlackEvent {
     required this.channel,
     this.enterprise,
     this.deliveredForUser,
+    this.eventId,
   });
 
   /// The workspace's team id.
@@ -31,6 +32,11 @@ sealed class SlackEvent {
   /// user. Lets a consumer tell its own bot's messages from another bot's.
   /// Null for a slash command, which carries no authorizations.
   final String? deliveredForUser;
+
+  /// The outer payload's `event_id`: the same on every retry of one event,
+  /// so it is what to dedupe by. Null for a slash command, which has none;
+  /// dedupe one of those by [SlackCommand.triggerId].
+  final String? eventId;
 }
 
 /// The Slack event types a [SlackEvent] can be read from.
@@ -146,6 +152,7 @@ final class SlackMessage extends SlackEvent {
     required this.threadTs,
     super.enterprise,
     super.deliveredForUser,
+    super.eventId,
     this.mention = false,
     this.user,
     this.botId,
@@ -198,6 +205,7 @@ final class SlackReactionAdded extends SlackEvent {
     required super.channel,
     super.enterprise,
     super.deliveredForUser,
+    super.eventId,
     required this.user,
     required this.reaction,
     required this.targetTs,
@@ -224,6 +232,7 @@ final class SlackReactionRemoved extends SlackEvent {
     required super.channel,
     super.enterprise,
     super.deliveredForUser,
+    super.eventId,
     required this.user,
     required this.reaction,
     required this.targetTs,

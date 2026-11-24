@@ -11,6 +11,9 @@
 - Every authentic delivery from an allowed workspace is recorded:
   `url_verification` (answered `{"challenge"}`), slash commands, and event
   types no `SlackEvent` covers. The translator decides what each means.
+- `SlackEvent.eventId`, from `event_id`: the same on every retry of an
+  event, so it is what a translator dedupes by. A slash command has none,
+  so dedupe one by its `triggerId`.
 - `SlackSigningSecret`, which can't be empty.
 - `SlackNotCovered.workspace`, so the allowlist applies to deliveries no
   `SlackEvent` covers.
