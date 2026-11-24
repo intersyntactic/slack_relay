@@ -5,7 +5,7 @@ description: >-
   authentic, wake-worthy ones on as a typed SlackEvent. Carries no knowledge
   of mirrors, node shapes, or kickoff records — those stay in whichever
   module (is_slack_module) consumes this relay's events.
-version: 0.3.0
+version: 0.3.1
 repository: https://github.com/intersyntactic/slack_relay
 
 environment:

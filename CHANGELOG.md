@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed: an `X-Slack-Request-Timestamp` past year 275760 made the gate
+  throw a `RangeError` before the signature was checked, which
+  `SlackRelay`'s `on Exception` didn't catch. Timestamps outside 0 to year
+  9999 are now rejected.
+
 ## 0.3.0
 
 - `readSlackDelivery(Uint8List)` and `slackRecordedEvent(Uint8List)`: the

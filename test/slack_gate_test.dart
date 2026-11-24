@@ -76,6 +76,19 @@ SlackGateDecision run({
 
 void main() {
   group('authentication', () {
+    for (final huge in ['99999999999999', '9223372036854775807', '-1']) {
+      test('timestamp $huge is rejected, not thrown', () {
+        final b = jsonBody(appMention());
+        expect(
+          run(
+            body: b,
+            headers: signedHeaders(b, tsOverride: huge),
+          ).outcome,
+          SlackGateOutcome.reject,
+        );
+      });
+    }
+
     test('a correctly signed app_mention triggers', () {
       final d = run();
       expect(d.outcome, SlackGateOutcome.trigger);

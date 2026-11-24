@@ -122,6 +122,9 @@ String slackSignBody(String secret, String timestamp, List<int> body) {
 ///
 /// Inlined (rather than imported from intersyntactic's `webhook_gate.dart`):
 /// this package depends on `crypto` alone.
+/// Seconds since the epoch in the year 9999: later is no timestamp.
+const _latestSeconds = 253402300799;
+
 bool constantTimeEquals(String a, String b) {
   if (a.length != b.length) return false;
   var diff = 0;
@@ -167,7 +170,9 @@ SlackGateDecision slackGate({
     );
   }
   final tsSeconds = int.tryParse(timestamp);
-  if (tsSeconds == null) {
+  // Bounded before it becomes a DateTime, which throws a RangeError (an
+  // Error the relay doesn't catch) past year 275760.
+  if (tsSeconds == null || tsSeconds < 0 || tsSeconds > _latestSeconds) {
     return const SlackGateDecision(
       SlackGateOutcome.reject,
       'x-slack-request-timestamp is not an integer',
