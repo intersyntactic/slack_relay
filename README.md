@@ -33,7 +33,7 @@ Or build one yourself:
 final relay = RelayServer(
   check: SlackDeliveryCheck(
     secret: SlackSigningSecret.parse(secretFromEnv)!,
-    workspaces: {'T0123'},
+    workspaces: SlackWorkspaces.parse('T0123')!, // never empty
   ),
   logbook: LogbookSocket.parse(socketFromEnv)!,
   path: slackRelayPath, // /webhook/slack

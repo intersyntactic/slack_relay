@@ -49,9 +49,42 @@ final class SlackSigningSecret {
   String toString() => 'SlackSigningSecret(…)';
 }
 
-/// What the headers vouched for: the signed timestamp, and the signature
-/// offered for it, still to be compared against the body.
-typedef SlackSignedHeaders = ({String timestamp, String signature});
+/// What the headers vouched for: a timestamp inside the window, and the
+/// signature offered for it, still to be compared against the body. Only
+/// [SlackDeliveryCheck.checkHeaders] makes one.
+final class SlackSignedHeaders {
+  const SlackSignedHeaders._(this._timestamp, this._signature);
+
+  /// As sent: the HMAC is over these exact characters.
+  final String _timestamp;
+
+  /// The hex after `v0=`, lower-cased.
+  final String _signature;
+}
+
+/// The workspaces (team ids) deliveries are taken from. Never empty: there is
+/// no "any workspace", so a relay can't be built that takes every workspace
+/// the app is installed in.
+final class SlackWorkspaces {
+  const SlackWorkspaces._(this._ids);
+
+  /// [ids], blanks aside, or null when none is left.
+  static SlackWorkspaces? of(Iterable<String> ids) {
+    final kept = {
+      for (final id in ids)
+        if (id.trim().isNotEmpty) id.trim(),
+    };
+    return kept.isEmpty ? null : SlackWorkspaces._(Set.unmodifiable(kept));
+  }
+
+  /// A comma-separated list, as `SLACK_TEAM_IDS` holds it.
+  static SlackWorkspaces? parse(String commaSeparated) =>
+      of(commaSeparated.split(','));
+
+  final Set<String> _ids;
+
+  bool contains(String workspace) => _ids.contains(workspace);
+}
 
 final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
   SlackDeliveryCheck({
@@ -62,9 +95,7 @@ final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
 
   final SlackSigningSecret secret;
 
-  /// The workspaces (team ids) deliveries are taken from. Empty takes any
-  /// workspace that signs with [secret], which is only right in a test.
-  final Set<String> workspaces;
+  final SlackWorkspaces workspaces;
 
   /// How far the signed timestamp may be from now, either way. Slack's
   /// docs say 5 minutes; it bounds how long a captured delivery can be
@@ -116,16 +147,15 @@ final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
         'not a content type Slack sends',
       );
     }
-    return HeadersVouch((
-      timestamp: timestamp,
-      signature: presented.substring(3).toLowerCase(),
-    ));
+    return HeadersVouch(
+      SlackSignedHeaders._(timestamp, presented.substring(3).toLowerCase()),
+    );
   }
 
   @override
   BodyVerdict checkBody(SlackSignedHeaders vouched, Uint8List body) {
-    final expected = secret.sign(vouched.timestamp, body);
-    if (!constantTimeEquals(expected, vouched.signature)) {
+    final expected = secret.sign(vouched._timestamp, body);
+    if (!constantTimeEquals(expected, vouched._signature)) {
       return const Refuse(RefusalStatus.unauthorized, 'signature mismatch');
     }
     // Authentic from here: the workspace, then record.
@@ -141,7 +171,7 @@ final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
       case SlackDeliveredEvent(:final event):
         workspace = event.workspace;
     }
-    if (workspaces.isNotEmpty && !workspaces.contains(workspace)) {
+    if (!workspaces.contains(workspace)) {
       return const Refuse(RefusalStatus.forbidden, 'workspace not allowed');
     }
     return const Record();

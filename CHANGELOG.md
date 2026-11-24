@@ -11,10 +11,10 @@
 - Every authentic delivery from an allowed workspace is recorded:
   `url_verification` (answered `{"challenge"}`), slash commands, and event
   types no `SlackEvent` covers. The translator decides what each means.
-- `SlackEvent.eventId`, from `event_id`: the same on every retry of an
-  event, so it is what a translator dedupes by. A slash command has none,
-  so dedupe one by its `triggerId`.
-- `SlackSigningSecret`, which can't be empty.
+- `SlackSigningSecret`, which can't be empty, and `SlackWorkspaces`, the
+  allowlist, which can't be empty either: there is no "any workspace". Its
+  set is copied and can't be changed after the check is built.
+- `bin/slack_relay.dart` warns when it binds plain HTTP off loopback.
 - `SlackNotCovered.workspace`, so the allowlist applies to deliveries no
   `SlackEvent` covers.
 - `bin/slack_relay.dart` runs a relay from `SLACK_SIGNING_SECRET`,

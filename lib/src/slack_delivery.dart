@@ -168,19 +168,11 @@ SlackDelivery _event(
     _ => null,
   };
   final deliveredForUser = _deliveredForUserOf(payload);
-  final eventId = _nonEmpty(payload, 'event_id');
   switch (type) {
     case null:
       return SlackNotCovered(team, 'event type "${event['type']}"');
     case SlackEventType.reactionAdded || SlackEventType.reactionRemoved:
-      return _reaction(
-        event,
-        type,
-        team,
-        enterprise,
-        deliveredForUser,
-        eventId,
-      );
+      return _reaction(event, type, team, enterprise, deliveredForUser);
     case SlackEventType.appMention || SlackEventType.message:
       break;
   }
@@ -201,7 +193,6 @@ SlackDelivery _event(
       threadTs: anchor,
       enterprise: enterprise,
       deliveredForUser: deliveredForUser,
-      eventId: eventId,
       mention: type == SlackEventType.appMention,
       user: switch (event) {
         {'user': final String user} => user,
@@ -236,7 +227,6 @@ SlackDelivery _reaction(
   String team,
   String? enterprise,
   String? deliveredForUser,
-  String? eventId,
 ) {
   final Map<Object?, Object?> item;
   switch (event) {
@@ -273,7 +263,6 @@ SlackDelivery _reaction(
                 channel: channel,
                 enterprise: enterprise,
                 deliveredForUser: deliveredForUser,
-                eventId: eventId,
                 user: user,
                 reaction: reaction,
                 targetTs: targetTs,
@@ -285,7 +274,6 @@ SlackDelivery _reaction(
                 channel: channel,
                 enterprise: enterprise,
                 deliveredForUser: deliveredForUser,
-                eventId: eventId,
                 user: user,
                 reaction: reaction,
                 targetTs: targetTs,

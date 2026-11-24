@@ -16,7 +16,10 @@ final now = DateTime.utc(2026, 11, 24, 12);
 final ts = '${now.millisecondsSinceEpoch ~/ 1000}';
 
 SlackDeliveryCheck check({Set<String> workspaces = const {team}}) =>
-    SlackDeliveryCheck(secret: secret, workspaces: workspaces);
+    SlackDeliveryCheck(
+      secret: secret,
+      workspaces: SlackWorkspaces.of(workspaces)!,
+    );
 
 Uint8List json(Map<String, Object?> payload) =>
     utf8.encode(jsonEncode(payload));
@@ -173,13 +176,30 @@ void main() {
       );
     });
 
-    test('an empty allowlist takes any workspace', () {
+    test('there is no empty allowlist to take any workspace', () {
+      expect(SlackWorkspaces.of(const []), isNull);
+      expect(SlackWorkspaces.of(const ['', '  ']), isNull);
+      expect(SlackWorkspaces.parse(''), isNull);
+      expect(SlackWorkspaces.parse(' , ,'), isNull);
+    });
+
+    test('a list of workspaces parses, blanks and spaces aside', () {
+      final w = SlackWorkspaces.parse(' T1, ,T2 ')!;
+      expect(w.contains('T1'), isTrue);
+      expect(w.contains('T2'), isTrue);
+      expect(w.contains(''), isFalse);
+    });
+
+    test('changing the list after the check is built changes nothing', () {
+      final ids = {team};
+      final c = check(workspaces: ids);
+      ids
+        ..clear()
+        ..add('T999');
+      expect(verdict(mention(), using: c), isA<Record>());
       expect(
-        verdict(
-          mention(workspace: 'T999'),
-          using: check(workspaces: {}),
-        ),
-        isA<Record>(),
+        verdict(mention(workspace: 'T999'), using: c),
+        refused(RefusalStatus.forbidden),
       );
     });
 

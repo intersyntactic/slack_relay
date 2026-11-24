@@ -29,12 +29,8 @@ Future<void> main() async {
 
   final secret = SlackSigningSecret.parse(env['SLACK_SIGNING_SECRET'] ?? '');
   if (secret == null) return abort('SLACK_SIGNING_SECRET is not set');
-  final workspaces = {
-    for (final t in (env['SLACK_TEAM_IDS'] ?? '').split(','))
-      if (t.trim().isNotEmpty) t.trim(),
-  };
-  // An empty set takes any workspace, which no deployment wants.
-  if (workspaces.isEmpty) return abort('SLACK_TEAM_IDS is not set');
+  final workspaces = SlackWorkspaces.parse(env['SLACK_TEAM_IDS'] ?? '');
+  if (workspaces == null) return abort('SLACK_TEAM_IDS names no workspace');
   final logbook = LogbookSocket.parse(env['LOGBOOK_SOCKET'] ?? '');
   if (logbook == null) return abort('LOGBOOK_SOCKET is not an absolute path');
   final rawPort = env['PORT'] ?? '';
@@ -58,5 +54,12 @@ Future<void> main() async {
   );
   final server = await HttpServer.bind(address, port);
   stdout.writeln('slack relay on ${address.address}:${server.port}');
+  if (!address.isLoopback) {
+    // Plain HTTP: signed Slack bodies cross the wire in clear unless a TLS
+    // proxy is the only thing that can reach this port.
+    stderr.writeln(
+      'warning: serving plain HTTP on ${address.address}, not loopback',
+    );
+  }
   await relay.serve(server);
 }
