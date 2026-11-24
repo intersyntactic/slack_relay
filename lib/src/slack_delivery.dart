@@ -68,16 +68,11 @@ SlackDelivery readSlackDelivery(Uint8List bytes) {
     }
     payload = decoded;
   } else {
-    // splitQueryString throws an Error, not an Exception, on a `%` not
-    // followed by two hex digits, so that is refused before it is called.
-    if (_badPercent.hasMatch(text)) {
-      return const SlackMalformed('form body has a bad percent-encoding');
+    final fields = _formFields(bytes);
+    if (fields == null) {
+      return const SlackMalformed('form body is not form-encoded utf-8');
     }
-    try {
-      payload = Uri.splitQueryString(text);
-    } on FormatException {
-      return const SlackMalformed('form body is not utf-8 once decoded');
-    }
+    payload = fields;
   }
 
   final type = _PayloadType.of(payload);
@@ -126,7 +121,64 @@ enum _PayloadType {
   };
 }
 
-final _badPercent = RegExp('%(?![0-9A-Fa-f]{2})');
+/// A form body's fields: `&`-separated `name=value`, `+` for a space,
+/// `%XX` for a byte, the bytes UTF-8; a later field of one name wins. Null for
+/// a body that isn't one. Read by hand rather than with Uri.splitQueryString,
+/// which throws an Error (not an Exception) on a bad `%` or a raw character
+/// above 127, and an Error ends a relay.
+Map<String, String>? _formFields(Uint8List body) {
+  final fields = <String, String>{};
+  var start = 0;
+  for (var i = 0; i <= body.length; i++) {
+    if (i < body.length && body[i] != 0x26) continue; // '&'
+    if (i > start) {
+      final pair = Uint8List.sublistView(body, start, i);
+      final eq = pair.indexOf(0x3d); // '='
+      final name = _formDecode(
+        eq < 0 ? pair : Uint8List.sublistView(pair, 0, eq),
+      );
+      final value = eq < 0
+          ? ''
+          : _formDecode(Uint8List.sublistView(pair, eq + 1));
+      if (name == null || value == null) return null;
+      fields[name] = value;
+    }
+    start = i + 1;
+  }
+  return fields;
+}
+
+/// One form component, decoded; null for a bad `%` or bytes not UTF-8.
+String? _formDecode(Uint8List encoded) {
+  final out = BytesBuilder(copy: false);
+  for (var i = 0; i < encoded.length; i++) {
+    final b = encoded[i];
+    if (b == 0x2b) {
+      out.addByte(0x20); // '+' is a space
+    } else if (b == 0x25) {
+      if (i + 2 >= encoded.length) return null;
+      final hi = _hexDigit(encoded[i + 1]);
+      final lo = _hexDigit(encoded[i + 2]);
+      if (hi == null || lo == null) return null;
+      out.addByte(hi << 4 | lo);
+      i += 2;
+    } else {
+      out.addByte(b);
+    }
+  }
+  try {
+    return utf8.decode(out.takeBytes());
+  } on FormatException {
+    return null;
+  }
+}
+
+int? _hexDigit(int c) => switch (c) {
+  >= 0x30 && <= 0x39 => c - 0x30,
+  >= 0x41 && <= 0x46 => c - 0x37,
+  >= 0x61 && <= 0x66 => c - 0x57,
+  _ => null,
+};
 
 /// [map]'s [key] when it is a non-empty string, otherwise null.
 String? _nonEmpty(Map<Object?, Object?> map, String key) => switch (map[key]) {

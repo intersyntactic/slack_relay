@@ -19,6 +19,12 @@
   `SlackEvent` covers.
 - `bin/slack_relay.dart` runs a relay from `SLACK_SIGNING_SECRET`,
   `SLACK_TEAM_IDS` and `LOGBOOK_SOCKET`.
+- Fixed: a signed form body with a raw character above 127 (`text=café`)
+  threw an `ArgumentError` out of `Uri.splitQueryString`, which ends an
+  is_relay process. Form bodies are now decoded by hand, which can't throw,
+  and the percent-encoding pre-check that guarded only one of its two
+  throwing paths is gone.
+- `Content-Type` decides nothing: it is outside the signature.
 - Fixed: an `X-Slack-Request-Timestamp` past year 9999 threw a
   `RangeError` before the signature was checked. The timestamp is now
   compared in whole seconds within a bounded range.
