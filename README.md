@@ -48,8 +48,9 @@ await relay.serve(await HttpServer.bind(InternetAddress.loopbackIPv4, 8086));
 - `SlackDeliveryCheck`, which implements is_relay's `ChecksDeliveries`.
   - **On the headers**, before any of the body is read, it refuses a
     missing or stale `X-Slack-Request-Timestamp` (more than 5 minutes off
-    either way), a missing `v0=` signature, and a content type Slack
-    doesn't send.
+    either way) and a missing `v0=` signature. `Content-Type` decides
+    nothing: it is outside the signature, and the parse reads the shape
+    from the signed bytes.
   - **On the body**, it compares the HMAC over `v0:<timestamp>:<body>` in
     constant time, then checks the workspace against the allowlist. Signed
     bytes that are no Slack delivery are refused 400.

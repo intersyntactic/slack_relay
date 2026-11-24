@@ -115,13 +115,6 @@ void main() {
       });
     }
 
-    test('a content type Slack never sends is refused 400', () {
-      expect(
-        headers(signed(body, contentType: 'text/plain')),
-        refusedHeaders(RefusalStatus.badRequest),
-      );
-    });
-
     test('a timestamp 4 minutes old is in the window', () {
       expect(
         headers(signed(body, timestamp: '${int.parse(ts) - 240}')),
@@ -129,11 +122,13 @@ void main() {
       );
     });
 
-    test('a content type with a charset, in any case, is taken', () {
-      expect(
-        headers(signed(body, contentType: 'Application/JSON; charset=utf-8')),
-        isA<HeadersVouch<SlackSignedHeaders>>(),
+    test('the content type is not what decides: a rewritten one is taken', () {
+      // Outside the signature, so a proxy may change it; the signed bytes say
+      // what the body is.
+      final form = utf8.encode(
+        'team_id=$team&channel_id=C1&user_id=U1&command=%2Fmodel&text=x',
       );
+      expect(verdict(form, contentType: 'text/plain'), isA<Record>());
     });
   });
 

@@ -140,13 +140,8 @@ final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
         'no v0= x-slack-signature',
       );
     }
-    final contentType = headers['content-type'] ?? '';
-    if (_SlackBodyType.parse(contentType) == null) {
-      return const HeadersRefused(
-        RefusalStatus.badRequest,
-        'not a content type Slack sends',
-      );
-    }
+    // No Content-Type check: it is outside the signature, and the parse
+    // reads the shape from the signed bytes.
     return HeadersVouch(
       SlackSignedHeaders._(timestamp, presented.substring(3).toLowerCase()),
     );
@@ -191,23 +186,4 @@ bool constantTimeEquals(String a, String b) {
     diff |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
   }
   return diff == 0;
-}
-
-/// The media types Slack posts a body as.
-enum _SlackBodyType {
-  json('application/json'),
-  form('application/x-www-form-urlencoded');
-
-  const _SlackBodyType(this.mime);
-
-  final String mime;
-
-  /// The type a `content-type` header names, parameters and case aside.
-  static _SlackBodyType? parse(String contentType) {
-    final mime = contentType.split(';').first.trim().toLowerCase();
-    for (final t in values) {
-      if (t.mime == mime) return t;
-    }
-    return null;
-  }
 }
