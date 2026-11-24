@@ -175,15 +175,3 @@ final class SlackDeliveryCheck implements ChecksDeliveries<SlackSignedHeaders> {
   /// Seconds since the epoch in the year 9999: later is no timestamp.
   static const _latestSeconds = 253402300799;
 }
-
-/// Constant-time comparison: a `==` on a hex digest leaks through timing how
-/// many leading characters a guess got right. Lengths are compared first;
-/// length is not the secret.
-bool constantTimeEquals(String a, String b) {
-  if (a.length != b.length) return false;
-  var diff = 0;
-  for (var i = 0; i < a.length; i++) {
-    diff |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
-  }
-  return diff == 0;
-}

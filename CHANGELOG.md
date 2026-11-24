@@ -2,6 +2,8 @@
 
 ## 0.4.0
 
+- **Breaking:** `constantTimeEquals` is no longer exported from here; it
+  is is_relay's (^0.2.0), the same function.
 - **Breaking:** on is_relay. `SlackDeliveryCheck` implements
   `ChecksDeliveries`, and is_relay's `RelayServer` serves it, records each
   delivery and answers. Removed: `SlackRelay` and its `onEvent`, `slackGate`
