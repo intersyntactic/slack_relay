@@ -1,86 +1,74 @@
 # is_slack_relay
 
-The HTTP front of a Slack app: ingress and transport, not domain logic.
+Slack's part of an [is_relay](https://pub.dev/packages/is_relay) relay: the
+check run on each delivery, and the parse of a delivery's bytes.
 
-Slack's Event Subscriptions and Slash Commands both point at one URL. This
-package checks each delivery — signature, timestamp window, replay — and
-hands the authentic, wake-worthy ones on as a typed `SlackEvent`. It carries
-no knowledge of mirrors, node shapes, or kickoff records; that domain logic
-belongs downstream, in whichever module consumes it (`is_slack_module`, for
+Slack's Event Subscriptions and Slash Commands both post to one URL. A
+`RelayServer` from is_relay takes each delivery and runs
+`SlackDeliveryCheck` on it. Every authentic delivery is recorded in the
+logbook as a `slack-event` entry, and only then is Slack answered. The
+logbook is the relay's only way out. A translator downstream reads the entry
+back with `slackRecordedEvent`, the same parse the check ran, and decides
+what it means. This package knows nothing of mirrors, node shapes or kickoff
+records: those belong to the consuming module (`is_slack_module`, for
 intersyntactic).
 
+## Running it
+
+`bin/slack_relay.dart` runs one:
+
+```sh
+SLACK_SIGNING_SECRET=... SLACK_TEAM_IDS=T0123 \
+LOGBOOK_SOCKET=/run/logbook/write.sock dart run is_slack_relay:slack_relay
+```
+
+Run it behind a TLS proxy. dart:io doesn't time out header reads, so the
+proxy must, and it must log neither headers nor bodies. The logbook writer's
+sender table must let the relay's user send `slack-event`, or every
+delivery is answered 503.
+
+Or build one yourself:
+
 ```dart
-import 'dart:io';
-
-import 'package:is_slack_relay/is_slack_relay.dart';
-
-final relay = SlackRelay(
-  spec: SlackSourceSpec(
-    signingSecret: Platform.environment['SLACK_SIGNING_SECRET']!,
-    teamIdAllowlist: {'T0123'},
+final relay = RelayServer(
+  check: SlackDeliveryCheck(
+    secret: SlackSigningSecret.parse(secretFromEnv)!,
+    workspaces: {'T0123'},
   ),
-  // Each accepted delivery is recorded before Slack is answered.
-  record: LogbookWriter(Platform.environment['LOGBOOK_SOCKET']!).write,
-  onEvent: (event) async {
-    switch (event) {
-      case SlackMessage(:final text):
-        // an app_mention (event.mention) or a plain message
-      case SlackReactionAdded():
-      case SlackReactionRemoved():
-      case SlackCommand(:final command):
-    }
-  },
+  logbook: LogbookSocket.parse(socketFromEnv)!,
+  path: slackRelayPath, // /webhook/slack
+  budget: slackRelayBudget, // 2.5 s: Slack sends again after 3 s
+  rate: WriteRateBound(perMinute: 600, burst: 100),
 );
-final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 8086);
-await for (final req in server) {
-  unawaited(relay.handle(req));
-}
+await relay.serve(await HttpServer.bind(InternetAddress.loopbackIPv4, 8086));
 ```
 
 ## What is here
 
-- `slackGate` (`SlackSourceSpec`, `SlackGateDecision`, `SlackGateOutcome`):
-  the pure decision function. Given headers, a body, a content type, and
-  the current time, it verifies the HMAC signature, checks the timestamp
-  window, consults a caller-owned `hasSeen` closure for replay, reads the
-  payload with `readSlackDelivery`, and applies the workspace allowlist and
-  wake set. No socket and no clock of its own, so every case is testable
-  with plain values.
+- `SlackDeliveryCheck`, which implements is_relay's `ChecksDeliveries`.
+  - **On the headers**, before any of the body is read, it refuses a
+    missing or stale `X-Slack-Request-Timestamp` (more than 5 minutes off
+    either way), a missing `v0=` signature, and a content type Slack
+    doesn't send.
+  - **On the body**, it compares the HMAC over `v0:<timestamp>:<body>` in
+    constant time, then checks the workspace against the allowlist. Signed
+    bytes that are no Slack delivery are refused 400.
+  - **What gets recorded:** everything else, including event types no
+    `SlackEvent` covers, slash commands, and `url_verification`, which is
+    answered with its challenge once it is recorded.
+  - **What it doesn't do:** filter by event type or remember what it has
+    seen. The docking station takes each event key once.
 - `readSlackDelivery` / `slackRecordedEvent`: the pure parse of one
-  delivery's bytes, with no signature check, content type or wake set. The
-  gate runs it after verifying. A consumer runs `slackRecordedEvent` on the
-  bytes it reads back from the logbook, so both sides share one parse. The
-  body's shape is sniffed: JSON if it starts with `{`, a slash command's
-  form otherwise.
+  delivery's bytes. No signature, no content type: the shape is sniffed,
+  JSON if it starts with `{`, a slash command's form otherwise. It never
+  throws.
 - `SlackEvent` (sealed; `SlackMessage`, `SlackReactionAdded`,
   `SlackReactionRemoved`, `SlackCommand`): Slack's own record of what
-  happened, each case named for Slack's event or command. Carries content —
-  a message's text, a reaction's emoji, a command's argument — directly,
-  since none of it can be fetched back later. Deliberately carries no actor:
-  unlike a platform whose sender maps straight onto an id this layer could
-  mint, Slack's actor construction stays a domain concern
-  (`SlackActorId.forWorkspace`, in `is_slack_module`), not duplicated here.
-- `SlackRelay`: the HTTP front end built on the gate. It binds one route
-  (`/webhook/slack`), caps and times out the request body, owns the
-  replay-dedupe cache the gate's `hasSeen` needs, answers Slack within its
-  budget (200 + challenge echo for `urlVerification`, 200 then a
-  backgrounded dispatch for `trigger`, 200 for `ignore`, 401 for `reject`,
-  404 for any other path), and calls `onEvent` with whatever the gate
-  decided to trigger on.
-- Recording: before a `trigger` is answered, its bytes are written to the
-  logbook through `record` as a `slack-event` entry, in the docking
-  station's `{at, bytes}` form. A written or already-recorded entry gets
-  200. Anything else gets 503, so Slack sends the event again. The
-  logbook writer's sender table must let the relay's user send
-  `slack-event`.
-
-## Why split from the module that uses it
-
-Same shape as `is_github_relay` has from its own consumers: ingress and
-transport (verifying a sender, deduping, answering on time) is a different
-concern from domain logic (turning an event into node shapes, mirrors,
-kickoff records), and the two don't need to version together. A module
-with Slack domain logic depends on this package, not the other way around.
+  happened, with typed fields so no consumer reads Slack's maps by key.
+  It carries content directly (a message's text, a reaction's emoji, a
+  command's argument), since none of it can be fetched back later. It
+  carries no actor: building a Slack actor id is the consuming module's job
+  (`SlackActorId`).
 
 ## Slack app configuration gotchas
 
@@ -105,5 +93,5 @@ Slack's own error messages:
 
 ```yaml
 dependencies:
-  is_slack_relay: ^0.2.0
+  is_slack_relay: ^0.4.0
 ```

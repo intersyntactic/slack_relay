@@ -32,7 +32,11 @@ final class SlackHandshake extends SlackDelivery {
 /// Well-formed, but not something a [SlackEvent] covers: another payload
 /// type, another event type, a reaction on a file. [reason] is for a log.
 final class SlackNotCovered extends SlackDelivery {
-  const SlackNotCovered(this.reason);
+  const SlackNotCovered(this.workspace, this.reason);
+
+  /// The workspace's team id: every delivery but the handshake names one.
+  final String workspace;
+
   final String reason;
 }
 
@@ -94,7 +98,7 @@ SlackDelivery readSlackDelivery(Uint8List bytes) {
     _PayloadType.eventCallback => _event(payload, team, enterprise),
     _PayloadType.command => _command(payload, team, enterprise),
     _PayloadType.urlVerification ||
-    null => SlackNotCovered('payload type "${payload['type']}"'),
+    null => SlackNotCovered(team, 'payload type "${payload['type']}"'),
   };
 }
 
@@ -166,7 +170,7 @@ SlackDelivery _event(
   final deliveredForUser = _deliveredForUserOf(payload);
   switch (type) {
     case null:
-      return SlackNotCovered('event type "${event['type']}"');
+      return SlackNotCovered(team, 'event type "${event['type']}"');
     case SlackEventType.reactionAdded || SlackEventType.reactionRemoved:
       return _reaction(event, type, team, enterprise, deliveredForUser);
     case SlackEventType.appMention || SlackEventType.message:
@@ -237,7 +241,10 @@ SlackDelivery _reaction(
     _ => false,
   };
   if (!onMessage) {
-    return SlackNotCovered('reaction on non-message item "${item['type']}"');
+    return SlackNotCovered(
+      team,
+      'reaction on non-message item "${item['type']}"',
+    );
   }
   final channel = _nonEmpty(item, 'channel');
   if (channel == null) {

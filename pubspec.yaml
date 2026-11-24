@@ -1,21 +1,21 @@
 name: is_slack_relay
 description: >-
-  The HTTP front of a Slack app: ingress and transport, not domain logic.
-  Checks a delivery (signature, timestamp window, replay) and hands the
-  authentic, wake-worthy ones on as a typed SlackEvent. Carries no knowledge
-  of mirrors, node shapes, or kickoff records — those stay in whichever
-  module (is_slack_module) consumes this relay's events.
-version: 0.3.0
+  Slack's part of an is_relay relay: the check of a delivery's signed
+  timestamp, HMAC and workspace, and the pure parse of its bytes into a typed
+  SlackEvent, shared by the relay and the translator that reads the logbook.
+version: 0.4.0
 repository: https://github.com/intersyntactic/slack_relay
 
 environment:
   sdk: ^3.13.0
 
 dependencies:
+  checked_json: ^0.2.1
   crypto: ^3.0.3
   is_docking_station_api: ^0.4.0
-  is_logbook_client: ^0.3.0
+  is_relay: ^0.1.0
 
 dev_dependencies:
+  is_logbook_client: ^0.3.0
   lints: ^6.1.0
   test: ^1.25.0

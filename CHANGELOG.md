@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+- **Breaking:** on is_relay. `SlackDeliveryCheck` implements
+  `ChecksDeliveries`, and is_relay's `RelayServer` serves it, records each
+  delivery and answers. Removed: `SlackRelay` and its `onEvent`, `slackGate`
+  and its decision types, `SlackSourceSpec`, the signature-digest replay
+  cache, the wake filter, and the relay's own logbook write. The logbook is
+  the relay's only way out.
+- Every authentic delivery from an allowed workspace is recorded:
+  `url_verification` (answered `{"challenge"}`), slash commands, and event
+  types no `SlackEvent` covers. The translator decides what each means.
+- `SlackSigningSecret`, which can't be empty.
+- `SlackNotCovered.workspace`, so the allowlist applies to deliveries no
+  `SlackEvent` covers.
+- `bin/slack_relay.dart` runs a relay from `SLACK_SIGNING_SECRET`,
+  `SLACK_TEAM_IDS` and `LOGBOOK_SOCKET`.
+- Fixed: an `X-Slack-Request-Timestamp` past year 9999 threw a
+  `RangeError` before the signature was checked. The timestamp is now
+  compared in whole seconds within a bounded range.
+
 ## 0.3.0
 
 - `readSlackDelivery(Uint8List)` and `slackRecordedEvent(Uint8List)`: the
