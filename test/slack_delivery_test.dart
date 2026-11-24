@@ -161,8 +161,44 @@ void main() {
     });
   });
 
+  group('form bodies', () {
+    SlackCommand? command(String text) => slackRecordedEvent(
+      utf8.encode('team_id=T1&channel_id=C1&user_id=U1&command=%2Fmodel&$text'),
+    ) as SlackCommand?;
+
+    // Uri.splitQueryString threw an ArgumentError, an Error, on each of these.
+    for (final raw in ['café', '👋 hi', 'ẞ']) {
+      test('raw non-ASCII "$raw" is read, not thrown', () {
+        expect(command('text=$raw')?.text, raw);
+      });
+    }
+
+    test('%XX is a byte, and the bytes are UTF-8', () {
+      expect(command('text=caf%C3%A9')?.text, 'café');
+      expect(command('text=%F0%9F%91%8B')?.text, '👋');
+    });
+
+    test('+ is a space, and %2B a plus', () {
+      expect(command('text=a+b%2Bc')?.text, 'a b+c');
+    });
+
+    test('= after the first stays in the value', () {
+      expect(command('text=a=b')?.text, 'a=b');
+    });
+
+    test('a later field of one name wins, as splitQueryString had it', () {
+      expect(command('text=first&text=second')?.text, 'second');
+    });
+
+    test('empty pairs and a field with no = are taken', () {
+      expect(command('text=x&&flag')?.text, 'x');
+    });
+  });
+
   group('never throws', () {
     for (final (name, bytes) in [
+      ('a % with one hex digit', utf8.encode('team_id=T1&text=%4')),
+      ('a % in a name', utf8.encode('%zz=1&team_id=T1')),
       ('bad percent-encoding', utf8.encode('team_id=T1&text=%zz')),
       ('truncated percent', utf8.encode('team_id=%')),
       ('percent-decoded bytes not utf-8', utf8.encode('team_id=%E2%82')),
@@ -178,6 +214,71 @@ void main() {
         expect(slackRecordedEvent(Uint8List.fromList(bytes)), isNull);
       });
     }
+  });
+
+  group('anchoring and the other cases', () {
+    test('a reply in a thread anchors on thread_ts, keeping its own ts', () {
+      final m = message(
+        eventCallback({
+          'type': 'app_mention',
+          'channel': 'C1',
+          'user': 'U1',
+          'ts': '2.2',
+          'thread_ts': '1.1',
+        }),
+      )!;
+      expect(m.threadTs, '1.1');
+      expect(m.rawThreadTs, '1.1');
+      expect(m.eventTs, '2.2');
+    });
+
+    test('a top-level message anchors on its own ts', () {
+      final m = message(
+        eventCallback({
+          'type': 'message',
+          'channel': 'C1',
+          'user': 'U1',
+          'ts': '2.2',
+        }),
+      )!;
+      expect(m.threadTs, '2.2');
+      expect(m.rawThreadTs, isNull);
+    });
+
+    test('a message with neither ts nor thread_ts is malformed', () {
+      expect(
+        readSlackDelivery(
+          eventCallback({'type': 'message', 'channel': 'C1', 'user': 'U1'}),
+        ),
+        isA<SlackMalformed>(),
+      );
+    });
+
+    test('reaction_removed is a SlackReactionRemoved', () {
+      final r = slackRecordedEvent(
+        eventCallback({
+          'type': 'reaction_removed',
+          'user': 'U1',
+          'reaction': 'x',
+          'event_ts': '3.3',
+          'item': {'type': 'message', 'channel': 'C1', 'ts': '1.1'},
+        }),
+      ) as SlackReactionRemoved?;
+      expect(r?.reaction, 'x');
+      expect(r?.targetTs, '1.1');
+      expect(r?.channel, 'C1');
+    });
+
+    test('url_verification with no challenge is malformed', () {
+      expect(
+        readSlackDelivery(json({'type': 'url_verification'})),
+        isA<SlackMalformed>(),
+      );
+      expect(
+        readSlackDelivery(json({'type': 'url_verification', 'challenge': ''})),
+        isA<SlackMalformed>(),
+      );
+    });
   });
 
   group('not events', () {
