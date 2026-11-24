@@ -15,11 +15,14 @@ intersyntactic).
 
 ## Running it
 
-`bin/slack_relay.dart` runs one:
+`bin/slack_relay.dart` runs one. With the values intersyntactic's own
+deployment uses (the logbook's write socket on that box, and a port other
+than the default 8086, which is taken there):
 
 ```sh
 SLACK_SIGNING_SECRET=... SLACK_TEAM_IDS=T0123 \
-LOGBOOK_SOCKET=/run/logbook/write.sock dart run is_slack_relay:slack_relay
+LOGBOOK_SOCKET=/run/intersyntactic-logbook/logbook.sock PORT=8091 \
+dart run is_slack_relay:slack_relay
 ```
 
 Run it behind a TLS proxy. dart:io doesn't time out header reads, so the

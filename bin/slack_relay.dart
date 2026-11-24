@@ -6,9 +6,10 @@
 ///
 ///   SLACK_SIGNING_SECRET=...  the app's signing secret
 ///   SLACK_TEAM_IDS=T1,T2      the workspaces taken from
-///   LOGBOOK_SOCKET=/run/...   the logbook writer's socket; its sender table
-///                             must let this user send `slack-event`
-///   PORT=8086                 optional
+///   LOGBOOK_SOCKET=<path>     the logbook writer's socket, an absolute path;
+///                             its sender table must let this user send
+///                             `slack-event`
+///   PORT=<port>               optional; 8086 when unset
 ///   HOST=127.0.0.1            optional; loopback, for a proxy on this machine
 ///
 /// Slack: Event Subscriptions and Slash Commands both at
