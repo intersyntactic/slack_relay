@@ -3,7 +3,7 @@ description: >-
   Slack's part of an is_relay relay: the check of a delivery's signed
   timestamp, HMAC and workspace, and the pure parse of its bytes into a typed
   SlackEvent, shared by the relay and the translator that reads the logbook.
-version: 0.4.0
+version: 0.5.0
 repository: https://github.com/intersyntactic/slack_relay
 
 environment:
@@ -12,8 +12,8 @@ environment:
 dependencies:
   checked_json: ^0.2.1
   crypto: ^3.0.3
-  is_docking_station_api: ^0.4.0
-  is_relay: ^0.2.0
+  is_docking_station_api: ^0.7.0
+  is_relay: ^0.3.0
 
 dev_dependencies:
   is_logbook_client: ^0.3.0

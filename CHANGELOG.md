@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- **Breaking:** on is_docking_station_api ^0.7.0 and is_relay ^0.3.0.
+  Nothing here changed: `RelayedEventSource`, `encodeRelayedEvent` and
+  `RelayedEvent.read` are the same from 0.4.0 to 0.7.0, and so is the
+  logbook's JSON for a relayed event. It is breaking only because
+  `slackEventSource` is the docking station's type, so a consumer has to be
+  on the same range. That lets is_slack_module use 0.7.0's
+  `RepliesInSlackConversation`.
+
 ## 0.4.0
 
 - **Breaking:** `constantTimeEquals` is no longer exported from here; it
