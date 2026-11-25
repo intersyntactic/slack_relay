@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- **Breaking:** on is_docking_station_api ^0.8.0 and is_relay ^0.4.0. The
+  docking station's reply types now come from
+  is_conversation_reply_vocabulary. Nothing here names a reply type, and `RelayedEventSource`, `encodeRelayedEvent` and
+  `RelayedEvent.read` are the same from 0.7.0 to 0.8.0. It is breaking only
+  because `slackEventSource` is the docking station's type, and it lets a
+  consumer leave the old is_reply_vocabulary behind.
+
 ## 0.5.0
 
 - **Breaking:** on is_docking_station_api ^0.7.0 and is_relay ^0.3.0.
