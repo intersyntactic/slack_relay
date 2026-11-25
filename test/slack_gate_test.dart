@@ -323,6 +323,20 @@ void main() {
   });
 
   group('slash commands', () {
+    test('a signed form with raw non-ASCII triggers, not throws', () {
+      // Unencoded on purpose: Uri.splitQueryString threw an Error on it.
+      final body = utf8.encode(
+        'team_id=$team&channel_id=C1&user_id=U1&command=%2Fmodel&text=café',
+      );
+      final d = run(
+        body: body,
+        headers: signedHeaders(body),
+        contentType: 'application/x-www-form-urlencoded',
+      );
+      expect(d.outcome, SlackGateOutcome.trigger);
+      expect((d.event as SlackCommand?)?.text, 'café');
+    });
+
     test('/model with a value triggers slack_command with the text', () {
       final body = formBody({
         'team_id': team,

@@ -161,6 +161,35 @@ void main() {
     });
   });
 
+  group('form bodies', () {
+    SlackCommand? command(String text) => slackRecordedEvent(
+      utf8.encode('team_id=T1&channel_id=C1&user_id=U1&command=%2Fmodel&$text'),
+    ) as SlackCommand?;
+
+    // Uri.splitQueryString threw an ArgumentError, an Error, on each of these.
+    for (final raw in ['café', '👋 hi', 'ẞ']) {
+      test('raw non-ASCII "$raw" is read, not thrown', () {
+        expect(command('text=$raw')?.text, raw);
+      });
+    }
+
+    test('%XX is a byte, and the bytes are UTF-8', () {
+      expect(command('text=caf%C3%A9')?.text, 'café');
+    });
+
+    test('+ is a space, and %2B a plus', () {
+      expect(command('text=a+b%2Bc')?.text, 'a b+c');
+    });
+
+    test('= after the first stays in the value', () {
+      expect(command('text=a=b')?.text, 'a=b');
+    });
+
+    test('a later field of one name wins, as splitQueryString had it', () {
+      expect(command('text=first&text=second')?.text, 'second');
+    });
+  });
+
   group('never throws', () {
     for (final (name, bytes) in [
       ('bad percent-encoding', utf8.encode('team_id=T1&text=%zz')),
