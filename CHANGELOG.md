@@ -50,6 +50,20 @@
   `RangeError` before the signature was checked. The timestamp is now
   compared in whole seconds within a bounded range.
 
+## 0.3.2
+
+- Fixed: a signed form body with a raw character above 127 (`text=café`)
+  made the gate throw an `ArgumentError` out of `Uri.splitQueryString`,
+  which `SlackRelay`'s `on Exception` didn't catch. Form bodies are now
+  decoded by hand, which can't throw, as in 0.4.0.
+
+## 0.3.1
+
+- Fixed: an `X-Slack-Request-Timestamp` past year 275760 made the gate
+  throw a `RangeError` before the signature was checked, which
+  `SlackRelay`'s `on Exception` didn't catch. Timestamps outside 0 to year
+  9999 are now rejected.
+
 ## 0.3.0
 
 - `readSlackDelivery(Uint8List)` and `slackRecordedEvent(Uint8List)`: the
