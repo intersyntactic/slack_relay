@@ -13,7 +13,7 @@ dependencies:
   checked_json: ^0.2.1
   crypto: ^3.0.3
   is_docking_station_api: ^0.8.0
-  is_relay: ^0.4.0
+  is_relay: ^0.5.0
 
 dev_dependencies:
   is_logbook_client: ^0.3.0
