@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1
+
+- Fixed: a JSON body nested about 10,000 levels deep made
+  `readSlackDelivery` (and so `slackRecordedEvent` and the relay) throw a
+  `StackOverflowError`, from checked_json 0.4.0's recursive copy in
+  `JsonObject.parse`. Only a Slack-signed body could reach it in the relay.
+  On checked_json ^0.4.1, a JSON body is read with `JsonObject.decode`, and
+  one nested past 512 levels is `SlackMalformed`.
+- `SlackSigningSecret.sign` feeds the HMAC the prefix and the body
+  separately, instead of copying the body into a new list first.
+
 ## 0.7.0
 
 - **Breaking:** on checked_json ^0.4.0, is_docking_station_api ^0.11.0 and

@@ -41,8 +41,15 @@ final class SlackSigningSecret {
   /// The hex HMAC-SHA256 Slack sends after `v0=`, over `v0:<timestamp>:` and
   /// [body].
   String sign(String timestamp, List<int> body) {
-    final mac = Hmac(sha256, utf8.encode(_value));
-    return mac.convert([...utf8.encode('v0:$timestamp:'), ...body]).toString();
+    // Fed in two parts, so the body is never copied to sign it.
+    late final Digest digest;
+    Hmac(sha256, utf8.encode(_value)).startChunkedConversion(
+        ChunkedConversionSink<Digest>.withCallback((d) => digest = d.single),
+      )
+      ..add(utf8.encode('v0:$timestamp:'))
+      ..add(body)
+      ..close();
+    return digest.toString();
   }
 
   @override

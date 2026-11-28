@@ -59,20 +59,14 @@ SlackDelivery readSlackDelivery(Uint8List bytes) {
   }
   final Map<String, Object?> payload;
   if (text.trimLeft().startsWith('{')) {
-    final Object? decoded;
     try {
-      decoded = decodeJsonRefusingDuplicateKeysAndUnsafeIntegers(text);
+      payload = JsonObject.decode(text).asUncheckedMap();
     } on FormatException {
       return const SlackMalformed(
-        'json body did not parse, names a key twice, or has an integer past '
-        '2^53 - 1',
+        'json body is not an object, does not parse, names a key twice, '
+        'has an integer past 2^53 - 1, or nests past 512 levels',
       );
     }
-    final object = JsonObject.parse(decoded);
-    if (object == null) {
-      return const SlackMalformed('json body is not an object');
-    }
-    payload = object.asUncheckedMap();
   } else {
     final fields = _formFields(bytes);
     if (fields == null) {

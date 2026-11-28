@@ -23,6 +23,12 @@ Uint8List eventCallback(
 SlackMessage? message(Uint8List bytes) =>
     slackRecordedEvent(bytes) as SlackMessage?;
 
+/// A signed-looking message whose event holds [open] and [close] 100,000
+/// times over, deep enough to overflow a recursive copy.
+String _nested(String open, String close) =>
+    '{"type":"event_callback","team_id":"T1","event":{"type":"message",'
+    '"channel":"C1","ts":"1.1","x":${open * 100000}1${close * 100000}}}';
+
 void main() {
   group('typed fields', () {
     test('a CI bot message: bot_id, channel_type, subtype, delivered for', () {
@@ -205,6 +211,8 @@ void main() {
       ('not utf-8', Uint8List.fromList([0xff, 0xfe])),
       ('JSON that does not parse', utf8.encode('{"type":')),
       ('JSON not an object', utf8.encode('[1]')),
+      ('JSON lists nested 100,000 deep', utf8.encode(_nested('[', ']'))),
+      ('JSON objects nested 100,000 deep', utf8.encode(_nested('{"a":', '}'))),
     ]) {
       test('$name is malformed', () {
         expect(
