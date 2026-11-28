@@ -75,6 +75,15 @@ Matcher refused(RefusalStatus status) =>
     isA<Refuse>().having((r) => r.status, 'status', status);
 
 void main() {
+  test('sign matches an HMAC-SHA256 computed elsewhere', () {
+    // From: printf 'v0:1531420618:<body>' | openssl dgst -sha256 -hmac <secret>
+    expect(
+      SlackSigningSecret.parse('test-signing-secret')!
+          .sign('1531420618', utf8.encode('team_id=T1&text=caf%C3%A9 {"a":1}')),
+      '0a784c6febdd31d7c51d49461cbd68974b844d307f4cd3a92f788afed5a2b5cf',
+    );
+  });
+
   test('an empty signing secret is no secret', () {
     expect(SlackSigningSecret.parse(''), isNull);
   });
