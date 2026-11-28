@@ -12,8 +12,8 @@ environment:
 dependencies:
   checked_json: ^0.4.0
   crypto: ^3.0.3
-  is_docking_station_api: ^0.10.0
-  is_relay: ^0.7.0
+  is_docking_station_api: ^0.11.0
+  is_relay: ^0.8.0
 
 dev_dependencies:
   is_logbook_client: ^0.4.0

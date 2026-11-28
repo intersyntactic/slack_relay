@@ -2,8 +2,8 @@
 
 ## 0.7.0
 
-- **Breaking:** on checked_json ^0.4.0, is_docking_station_api ^0.10.0 and
-  is_relay ^0.7.0. `slackEventSource` is the docking station's type, which
+- **Breaking:** on checked_json ^0.4.0, is_docking_station_api ^0.11.0 and
+  is_relay ^0.8.0. `slackEventSource` is the docking station's type, which
   is why this is breaking; nothing here names a type that moved to
   is_conversation_vocabulary, or `MessageSaid`.
 - A JSON body that names a key twice (at any depth, keys compared once
