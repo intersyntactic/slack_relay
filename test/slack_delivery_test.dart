@@ -216,6 +216,31 @@ void main() {
     }
   });
 
+  group('JSON that jsonDecode would quietly misread', () {
+    // Each is a valid message but for the one part named.
+    const before = '{"type":"event_callback","team_id":"T1",';
+    const event = '"event":{"type":"message","channel":"C1","ts":"1.1"';
+    test('the same message without them is read', () {
+      expect(
+        readSlackDelivery(utf8.encode('$before$event}}')),
+        isA<SlackDeliveredEvent>(),
+      );
+    });
+    for (final (name, text) in [
+      ('an outer key named twice', '$before"team_id":"T2",$event}}'),
+      ('an event key named twice', '$before$event,"channel":"C2"}}'),
+      (
+        'a key named twice, once escaped',
+        '$before"team\\u005fid":"T2",$event}}',
+      ),
+      ('an integer past 2^53 - 1', '$before"n":9007199254740993,$event}}'),
+    ]) {
+      test('$name is malformed', () {
+        expect(readSlackDelivery(utf8.encode(text)), isA<SlackMalformed>());
+      });
+    }
+  });
+
   group('anchoring and the other cases', () {
     test('a reply in a thread anchors on thread_ts, keeping its own ts', () {
       final m = message(

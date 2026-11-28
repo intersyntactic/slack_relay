@@ -10,6 +10,8 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checked_json/checked_json.dart';
+
 import 'slack_event.dart';
 
 /// What one delivery's bytes say.
@@ -59,14 +61,18 @@ SlackDelivery readSlackDelivery(Uint8List bytes) {
   if (text.trimLeft().startsWith('{')) {
     final Object? decoded;
     try {
-      decoded = jsonDecode(text);
+      decoded = decodeJsonRefusingDuplicateKeysAndUnsafeIntegers(text);
     } on FormatException {
-      return const SlackMalformed('json body did not parse');
+      return const SlackMalformed(
+        'json body did not parse, names a key twice, or has an integer past '
+        '2^53 - 1',
+      );
     }
-    if (decoded is! Map<String, Object?>) {
+    final object = JsonObject.parse(decoded);
+    if (object == null) {
       return const SlackMalformed('json body is not an object');
     }
-    payload = decoded;
+    payload = object.asUncheckedMap();
   } else {
     final fields = _formFields(bytes);
     if (fields == null) {
@@ -208,12 +214,9 @@ SlackDelivery _event(
   String team,
   String? enterprise,
 ) {
-  final Map<String, Object?> event;
-  switch (payload) {
-    case {'event': final Map<String, Object?> e}:
-      event = e;
-    default:
-      return const SlackMalformed('event_callback has no event object');
+  final event = JsonObject.parse(payload['event'])?.asUncheckedMap();
+  if (event == null) {
+    return const SlackMalformed('event_callback has no event object');
   }
   final type = switch (event) {
     {'type': final String wire} => SlackEventType.parse(wire),
