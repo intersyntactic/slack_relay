@@ -2,10 +2,10 @@
 
 ## 0.7.0
 
-- **Breaking:** on checked_json ^0.3.0, is_docking_station_api ^0.9.0 and
-  is_relay ^0.6.0. `slackEventSource` is the docking station's type, which
+- **Breaking:** on checked_json ^0.4.0, is_docking_station_api ^0.10.0 and
+  is_relay ^0.7.0. `slackEventSource` is the docking station's type, which
   is why this is breaking; nothing here names a type that moved to
-  is_conversation_vocabulary.
+  is_conversation_vocabulary, or `MessageSaid`.
 - A JSON body that names a key twice (at any depth, keys compared once
   unescaped) or holds an integer past 2^53 - 1 is now `SlackMalformed`.
   Before, `jsonDecode` kept the last of a repeated key without a word, so a
